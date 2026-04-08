@@ -1,5 +1,5 @@
 ---
-name: test-cases.create
+name: test-plan.create-cases
 description: Generate individual test case files from an existing test plan. Use after /test-plan.create to produce TC-*.md files, INDEX.md, and update the test plan.
 user-invocable: true
 model: opus
@@ -13,13 +13,13 @@ Generate individual test case specification files from an existing test plan.
 ## Usage
 
 ```
-/test-cases.create [FEATURE_DIR]
+/test-plan.create-cases [FEATURE_DIR]
 ```
 
 Examples:
-- `/test-cases.create` (auto-detects from prior `/test-plan.create` run)
-- `/test-cases.create mcp_catalog`
-- `/test-cases.create /path/to/feature_dir`
+- `/test-plan.create-cases` (auto-detects from prior `/test-plan.create` run)
+- `/test-plan.create-cases mcp_catalog`
+- `/test-plan.create-cases /path/to/feature_dir`
 
 ## Inputs
 

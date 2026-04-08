@@ -122,11 +122,11 @@ After generating the test plan, collect all gaps reported by the three sub-agent
    >
    > 1. **Provide documents** — paste file paths (ADR, API spec, design doc) to resolve gaps
    > 2. **Proceed to review** — continue with the test plan as-is (gaps will be noted in TestPlanGaps.md)
-   > 3. **Proceed to review + generate test cases** — continue and automatically run `/test-cases.create` after review
+   > 3. **Proceed to review + generate test cases** — continue and automatically run `/test-plan.create-cases` after review
 
 4. **If the user chooses option 1**: Read the provided documents, re-run only the relevant sub-agents from Step 2 with the new material, update the test plan, update `TestPlanGaps.md` (removing resolved gaps, adding any new ones), then present the menu again with remaining gaps (if any).
 5. **If the user chooses option 2 or no gaps exist**: Proceed to Step 4.
-6. **If the user chooses option 3**: Proceed to Step 4, and after the review is complete, automatically invoke `/test-cases.create` with the feature directory.
+6. **If the user chooses option 3**: Proceed to Step 4, and after the review is complete, automatically invoke `/test-plan.create-cases` with the feature directory.
 
 ### Step 4: Review and Improve
 

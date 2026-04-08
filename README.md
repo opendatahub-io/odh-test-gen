@@ -9,7 +9,7 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 | Skill | Description |
 |-------|-------------|
 | `/test-plan.create` | Generate a test plan from a strategy (RHAISTRAT), with optional ADR |
-| `/test-cases.create` | Generate individual test case files from an existing test plan |
+| `/test-plan.create-cases` | Generate individual test case files from an existing test plan |
 
 ### Sub-agents (forked, non-user-invocable)
 
@@ -30,10 +30,10 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 /test-plan.create RHAISTRAT-400 /path/to/adr.pdf
 
 # Generate test cases from an existing test plan
-/test-cases.create
+/test-plan.create-cases
 
 # Generate test cases for a specific feature directory
-/test-cases.create mcp_catalog
+/test-plan.create-cases mcp_catalog
 ```
 
 ## Pipeline
@@ -55,7 +55,7 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
             test-plan.review
                     │
                     ▼
-        /test-cases.create (optional auto-run)
+        /test-plan.create-cases (optional auto-run)
                     │
                     ▼
             TC-*.md + INDEX.md
@@ -81,7 +81,7 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 │   └── SKILL.md
 ├── test-plan.review/
 │   └── SKILL.md
-└── test-cases.create/
+└── test-plan.create-cases/
     ├── SKILL.md
     └── test-case-template.md
 ```
