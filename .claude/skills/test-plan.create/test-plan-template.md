@@ -1,13 +1,7 @@
 # {feature_name} Test Plan
 **{team_name} – {testing_focus}**
 
-## Document Information
-- **Feature**: {feature_name}
-- **Strategy**: [{strat_key}]({strat_url})
-- **ADR**: [{adr_title}]({adr_link}) (if provided, otherwise remove this line)
-- **Team**: {team_name}
-- **Version**: 1.0
-- **Last Updated**: {today_date}
+**Strategy**: [{strat_key}]({strat_url})
 
 ---
 
@@ -139,9 +133,9 @@ Test cases follow the naming pattern: `TC-<CATEGORY>-<NUMBER>`
 
 ### 8.3 Document Change Log
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | {today_date} | QA Team | Initial test plan |
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | {today_date} | Initial test plan |
 
 ---
 

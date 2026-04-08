@@ -19,7 +19,22 @@ The orchestrating skill will pass you the full content of the generated TestPlan
 
 ## What to Assess
 
-### 1. Completeness Check
+### 1. Frontmatter Check
+
+Verify the test plan has YAML frontmatter (between `---` delimiters) with these required fields:
+
+| Field | Check |
+|-------|-------|
+| `feature` | Non-empty string |
+| `strat_key` | Matches `RHAISTRAT-\d+` |
+| `version` | Semver string matching `x.x.x` |
+| `status` | One of: Draft, In Review, Approved |
+| `last_updated` | ISO date string |
+| `author` | Non-empty string |
+
+If frontmatter is missing or has invalid fields, flag it as the first issue.
+
+### 2. Completeness Check
 
 For each section, verify it has substantive content (not just placeholders or TBD):
 
@@ -36,7 +51,7 @@ For each section, verify it has substantive content (not just placeholders or TB
 | 6 Risks | Are risks specific to this feature, not boilerplate? |
 | 7 Environment | Is there enough detail to set up a test environment? |
 
-### 2. Consistency Check
+### 3. Consistency Check
 
 - Do the endpoints in Section 4 align with the scope in Section 1.2?
 - Do the test levels in Section 2.1 match the interface types in Section 4?
@@ -52,6 +67,11 @@ Return your findings in this exact structure:
 
 ### Overall Assessment
 {1-2 sentences: is this test plan ready for test case generation, or does it need improvement first?}
+
+### Frontmatter
+| Field | Status | Issue |
+|-------|--------|-------|
+| {field} | {Valid / Invalid / Missing} | {brief description or "—"} |
 
 ### Completeness
 | Section | Status | Issue |

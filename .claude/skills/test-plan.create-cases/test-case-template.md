@@ -1,6 +1,5 @@
 # {test_case_id}: {title}
 
-**Priority**: {P0|P1|P2}
 **Objective**: {one sentence explaining the test goal}
 
 {include Preconditions only if there are specific requirements beyond the default test environment}
@@ -29,7 +28,5 @@
 {include Validation only if the test requires verification beyond the API response, e.g., database queries}
 **Validation**:
 - {database query or cross-validation step}
-
-**Automation Status**: To be filled later in the process.
 
 **Notes**: To be filled later in the process.

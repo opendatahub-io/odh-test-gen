@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Secrets & credentials
+*.pem
+*.key
+*.cert
+*.p12
+*.jks
+*.env
+.env.*
+!.env.example
+*.secret
+credentials.json
+token.json
+service-account*.json
+kubeconfig
+.kube/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

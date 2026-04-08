@@ -50,9 +50,19 @@ If no arguments are provided and no strategy file is available from the current 
 
 ## Process
 
-### Step 0: Check MCP Integration
+### Step 0: Pre-flight Checks
 
-Before proceeding, verify that the Atlassian MCP integration is available by attempting to use the `mcp__atlassian__getJiraIssue` tool.
+#### 0.1 Python dependencies
+
+Run `uv run python scripts/frontmatter.py schema test-plan` via Bash. If it fails with a PyYAML import error, ask the user to install dependencies:
+```
+uv pip install -r requirements.txt
+```
+Do NOT proceed until this succeeds.
+
+#### 0.2 MCP Integration
+
+Verify that the Atlassian MCP integration is available by attempting to use the `mcp__atlassian__getJiraIssue` tool.
 
 If the MCP tool is **not available**:
 1. Inform the user that Jira MCP integration is required to fetch strategy details
@@ -85,13 +95,33 @@ Once all three sub-agents return:
 
 1. Create the feature directory using Bash: `mkdir -p <feature_name>/test_cases`
 2. Read the template from `${CLAUDE_SKILL_DIR}/test-plan-template.md` using the Read tool
-3. Generate `<feature_name>/TestPlan.md` by filling in the template with the gathered information. Follow the template structure exactly — do not add, remove, or reorder sections.
+3. Generate `<feature_name>/TestPlan.md` by filling in the template with the gathered information. Follow the template structure exactly — do not add, remove, or reorder sections. Do NOT write frontmatter manually — Step 3.1 handles it.
 4. For Section 8.2 ({Endpoint/Method} Coverage): fill in the Endpoint column using the endpoints identified in Section 4. Leave the Test Cases and Coverage columns empty — they will be filled later in the process.
 5. Generate `<feature_name>/README.md` with:
    - Feature name and one-line description
    - Links to Jira strategy, ADR (if provided)
    - Link to TestPlan.md
    - Brief mention of where automated tests will be implemented
+
+### Step 3.1: Set Frontmatter
+
+After generating TestPlan.md, set its frontmatter using the `frontmatter.py` script via Bash. This validates the metadata against the schema before writing.
+
+```bash
+uv run python scripts/frontmatter.py set <feature_name>/TestPlan.md \
+    feature="<feature_name>" \
+    strat_key=<RHAISTRAT_KEY> \
+    version=1.0.0 \
+    status=Draft \
+    author="<team_name>" \
+    additional_docs="<comma-separated list of doc links, or []>"
+```
+
+- `additional_docs`: include ADR link and any other document links provided by the user. Use `[]` if none.
+- `last_updated` is auto-set to today's date by the script.
+- `reviewers` defaults to `[]`.
+
+If the script exits with an error, fix the field values and retry — do not write frontmatter by hand.
 
 ### Step 3.5: Collect Gaps and Prompt for Additional Documents
 
@@ -111,7 +141,18 @@ After generating the test plan, collect all gaps reported by the three sub-agent
    ## Environment & Infrastructure
    {gaps from test-plan.analyze.infra, or "No gaps identified."}
    ```
-3. **If gaps exist**, present the user with a structured action menu via AskUserQuestion. List the gaps first, then offer numbered options. Example:
+3. **Set frontmatter** on TestPlanGaps.md using the `frontmatter.py` script:
+   ```bash
+   uv run python scripts/frontmatter.py set <feature_name>/TestPlanGaps.md \
+       feature="<feature_name>" \
+       strat_key=<RHAISTRAT_KEY> \
+       status=Open \
+       gap_count=<number_of_gaps>
+   ```
+   - `gap_count`: total number of individual gaps across all three sections
+   - If no gaps were identified, set `status=Resolved` and `gap_count=0`
+   - `last_updated` is auto-set by the script
+5. **If gaps exist**, present the user with a structured action menu via AskUserQuestion. List the gaps first, then offer numbered options. Example:
 
    > The following gaps were identified in the test plan:
    > - Endpoint paths for the catalog API are not specified — an **API spec** or **ADR** would resolve this
@@ -124,9 +165,9 @@ After generating the test plan, collect all gaps reported by the three sub-agent
    > 2. **Proceed to review** — continue with the test plan as-is (gaps will be noted in TestPlanGaps.md)
    > 3. **Proceed to review + generate test cases** — continue and automatically run `/test-plan.create-cases` after review
 
-4. **If the user chooses option 1**: Read the provided documents, re-run only the relevant sub-agents from Step 2 with the new material, update the test plan, update `TestPlanGaps.md` (removing resolved gaps, adding any new ones), then present the menu again with remaining gaps (if any).
-5. **If the user chooses option 2 or no gaps exist**: Proceed to Step 4.
-6. **If the user chooses option 3**: Proceed to Step 4, and after the review is complete, automatically invoke `/test-plan.create-cases` with the feature directory.
+6. **If the user chooses option 1**: Read the provided documents, re-run only the relevant sub-agents from Step 2 with the new material, update the test plan, update `TestPlanGaps.md` (removing resolved gaps, adding any new ones), update the gaps frontmatter (`gap_count`, `status`), then present the menu again with remaining gaps (if any).
+7. **If the user chooses option 2 or no gaps exist**: Proceed to Step 4.
+8. **If the user chooses option 3**: Proceed to Step 4, and after the review is complete, automatically invoke `/test-plan.create-cases` with the feature directory.
 
 ### Step 4: Review and Improve
 

@@ -36,10 +36,19 @@ If no arguments are provided and no TestPlan.md is available from the current se
 
 ## Process
 
+### Step 0: Pre-flight Check
+
+Run `uv run python scripts/frontmatter.py schema test-case` via Bash. If it fails with a PyYAML import error, ask the user to install dependencies:
+```
+uv pip install -r requirements.txt
+```
+Do NOT proceed until this succeeds.
+
 ### Step 1: Read the Test Plan
 
 1. Read `<feature_dir>/TestPlan.md` using the Read tool
-2. Extract:
+2. Extract the `strat_key` from the YAML frontmatter — this will be used in Step 3.1 to set frontmatter on each test case file
+3. Extract:
    - Section 4 (Endpoints/Methods Under Test) — the full list of what needs test coverage
    - Section 2 (Test Strategy) — test levels, types, priorities to guide test case depth
    - Section 3 (Test Environment) — preconditions and test data requirements
@@ -72,7 +81,21 @@ Process **one category at a time** from Section 5.2. For each category:
    - Map back to test objectives from Section 1.3
    - Check against previously generated categories to avoid duplicating coverage
 
-2. **Write** the `TC-<CATEGORY>-<NUMBER>.md` files for that category immediately before moving to the next
+2. **Write** the `TC-<CATEGORY>-<NUMBER>.md` files for that category immediately before moving to the next. Include YAML frontmatter at the top of each file:
+
+   ```yaml
+   ---
+   test_case_id: TC-<CATEGORY>-<NUMBER>
+   strat_key: <STRAT_KEY_FROM_TEST_PLAN>
+   priority: <P0|P1|P2>
+   status: Draft
+   automation_status: Not Started
+   last_updated: <today_date>
+   ---
+   ```
+
+   - `strat_key`: use the value extracted from the test plan's frontmatter in Step 1
+   - Write the frontmatter directly — validation happens in Step 5.7
 
 This category-by-category approach ensures cross-category awareness (no duplicate coverage) while keeping each batch focused.
 
@@ -116,6 +139,18 @@ After generating all test case files and updating the test plan, validate covera
 3. **Priority distribution**: Verify that P0 endpoints have P0 test cases — a critical endpoint should not only have P2 test cases.
 4. **Gap cross-reference**: If `TestPlanGaps.md` was read in Step 1.5, verify that no test cases were created for endpoints or areas flagged as pending/missing. If any were, remove them and flag the inconsistency.
 5. **Append to TestPlanGaps.md**: If `<feature_dir>/TestPlanGaps.md` exists, append a `## Test Case Coverage Gaps` section with any coverage gaps found (uncovered endpoints, missing objectives, priority mismatches). If the file does not exist, create it with just this section.
+
+### Step 5.7: Validate Frontmatter
+
+After all test case files are written, validate their frontmatter in one pass:
+
+```bash
+for f in <feature_dir>/test_cases/TC-*.md; do
+    uv run python scripts/frontmatter.py validate "$f"
+done
+```
+
+If any file fails validation, fix the frontmatter in that file and re-run the validation.
 
 ### What this skill does NOT do
 
