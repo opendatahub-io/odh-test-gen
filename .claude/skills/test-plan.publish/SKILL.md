@@ -207,8 +207,8 @@ If the user declines, stop.
 ### What this skill does NOT do
 
 - Does NOT generate or modify test plan content — use `/test-plan.create` for that
-- Does NOT apply review feedback — use `/test-plan.apply-feedback` for that
+- Does NOT apply review feedback — use `/test-plan.resolve-feedback` for that
 - Does NOT support Confluence or Google Drive — GitHub PRs only
-- Does NOT auto-increment the `version` field — version is set by `/test-plan.create` and only bumped by `/test-plan.apply-feedback` after changes
+- Does NOT auto-increment the `version` field — version is set by `/test-plan.create` and only bumped by `/test-plan.resolve-feedback` after changes
 
 $ARGUMENTS

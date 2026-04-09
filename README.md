@@ -91,7 +91,8 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 
 - Claude Code installed
 - Atlassian MCP server configured (for Jira strategy fetching)
-- GitHub CLI (`gh`) installed and authenticated (for publishing)
+- Git installed
+- GitHub CLI (`gh`) installed and authenticated (for publishing and feedback resolution)
 
 ## Repository Structure
 
