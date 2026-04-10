@@ -118,16 +118,23 @@ If the user declines, stop.
    ```bash
    git checkout -b test-plan/<strat_key>-v<version>
    ```
-   If the branch already exists, inform the user and ask whether to overwrite (reset) or abort.
+   If the branch already exists, inform the user and ask whether to overwrite or abort. If the user chooses to overwrite, delete and recreate the branch from the current HEAD:
+   ```bash
+   git branch -D test-plan/<strat_key>-v<version>
+   git checkout -b test-plan/<strat_key>-v<version>
+   ```
 
 2. Stage all artifacts in the feature directory:
    ```bash
    git add <feature_dir>/
    ```
 
-3. Commit with a descriptive message:
+3. Commit with a descriptive message. Use a heredoc to avoid shell injection from frontmatter values:
    ```bash
-   git commit -m "test-plan(<strat_key>): publish <feature> v<version>"
+   git commit -m "$(cat <<'EOF'
+   test-plan(<strat_key>): publish <feature> v<version>
+   EOF
+   )"
    ```
 
 4. Push the branch:
@@ -138,6 +145,7 @@ If the user declines, stop.
    ```bash
    git remote add publish-target https://github.com/<owner>/<repo>.git
    git push publish-target test-plan/<strat_key>-v<version>
+   git remote remove publish-target
    ```
 
 ### Step 5: Create Pull Request
@@ -166,25 +174,19 @@ If the user declines, stop.
    - test_cases/INDEX.md (if exists, with count)
    ```
 
-3. Create the PR:
+3. Create the PR. Use a heredoc for the body to avoid shell injection from frontmatter or plan content:
    ```bash
    gh pr create \
        --title "Test Plan: <feature> (v<version>)" \
-       --body "<pr_body>" \
+       --body "$(cat <<'EOF'
+   <pr_body>
+   EOF
+   )" \
        --base main \
        --head test-plan/<strat_key>-v<version>
    ```
    If publishing to a different repo, add `--repo <owner/repo>`.
-
-   If reviewers were determined in Step 1, add them:
-   ```bash
-   gh pr create \
-       --title "Test Plan: <feature> (v<version>)" \
-       --body "<pr_body>" \
-       --base main \
-       --head test-plan/<strat_key>-v<version> \
-       --reviewer <user1>,<user2>
-   ```
+   If reviewers were determined in Step 1, add `--reviewer <user1>,<user2>`.
 
 ### Step 6: Confirm
 

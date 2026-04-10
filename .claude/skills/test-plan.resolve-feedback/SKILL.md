@@ -92,7 +92,7 @@ Run `uv run python scripts/frontmatter.py validate <feature_dir>/TestPlan.md` vi
    - **Where**: general, or specific file + line
    - **What**: the comment body
 
-5. Filter out:
+4. Filter out:
    - Bot comments
    - Purely conversational comments (e.g., "looks good", "thanks", "LGTM")
    - Already-resolved review threads (if resolution status is available)
@@ -199,9 +199,12 @@ If any validation fails, fix the issue before proceeding.
    git add <feature_dir>/
    ```
 
-3. Commit with a descriptive message that summarizes the actual changes applied, not just "resolve feedback". Format:
-   ```
+3. Commit with a descriptive message that summarizes the actual changes applied, not just "resolve feedback". Use a heredoc to avoid shell injection from frontmatter values:
+   ```bash
+   git commit -m "$(cat <<'EOF'
    test-plan(<strat_key>): <short summary of changes> (PR #<PR_NUMBER>)
+   EOF
+   )"
    ```
    Examples:
    - `test-plan(RHAISTRAT-400): add rollback test coverage, fix P0 priority definitions (PR #5)`
