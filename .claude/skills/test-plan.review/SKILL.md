@@ -1,90 +1,190 @@
 ---
 name: test-plan.review
-description: Reviews a generated test plan for completeness, consistency, and quality. Suggests concrete improvements.
-context: fork
-allowed-tools: Read
-model: sonnet
+description: Reviews a generated test plan for completeness, consistency, and quality using a 5-criteria rubric. Scores, auto-revises, and re-scores (max 2 cycles).
 user-invocable: false
+model: opus
+allowedTools:
+  - Read
+  - Write
+  - Bash
+  - Glob
+  - Skill
+  - mcp__atlassian__getJiraIssue
 ---
 
-You are a senior QA lead reviewing a generated test plan. Your job is to assess its quality and produce actionable improvement suggestions.
+# Test Plan Reviewer
 
-**Note:** Gap analysis and document recommendations are handled separately by the orchestrator (Step 3.5). Focus on completeness, consistency, and quality of what is already written.
+Internal orchestrator that reviews and scores a test plan using the quality rubric (5 criteria, 0-2 each, 10-point scale). Auto-revises failing plans and re-scores up to 2 times.
+
+## Usage
+
+This skill is not user-invocable. It is called by:
+- `test-plan.create` (Step 4)
+- automation/orchestrator flows that need score + auto-revision behavior
 
 ## Inputs
 
-The orchestrating skill will pass you the full content of the generated TestPlan.md inline in the arguments.
+### From arguments
+Parse `$ARGUMENTS` to extract:
+1. **Feature directory** (required): path to directory containing `TestPlan.md`
 
-**ONLY read files specified in the arguments. Do NOT browse or search the repository.**
+### Auto-detection
+If no arguments provided and `test-plan.create` just generated a test plan in this session, use that feature directory automatically.
 
-## What to Assess
+## Process
 
-### 1. Frontmatter Check
+### Step 1: Read Test Plan and Source Strategy
 
-Verify the test plan has YAML frontmatter (between `---` delimiters) with these required fields:
+1. Read `<feature_dir>/TestPlan.md`
+2. Read frontmatter to extract `strat_key`:
+   ```bash
+   uv run python scripts/frontmatter.py read <feature_dir>/TestPlan.md
+   ```
+3. Fetch the source strategy from Jira using the `strat_key`:
+   ```
+   mcp__atlassian__getJiraIssue with issueIdOrKey=<strat_key>
+   ```
+   If MCP is unavailable, check for a local strategy file in `artifacts/strat-tasks/<strat_key>.md` (rfe-creator convention). If neither is available, warn the user that grounding and scope fidelity scoring will be degraded, and proceed with the test plan content only.
 
-| Field | Check |
-|-------|-------|
-| `feature` | Non-empty string |
-| `strat_key` | Matches `RHAISTRAT-\d+` |
-| `version` | Semver string matching `x.x.x` |
-| `status` | One of: Draft, In Review, Approved |
-| `last_updated` | ISO date string |
-| `author` | Non-empty string |
+4. Store the raw strategy text for passing to sub-agents.
 
-If frontmatter is missing or has invalid fields, flag it as the first issue.
+### Step 2: Score (fork)
 
-### 2. Completeness Check
+Read the score agent prompt from `${CLAUDE_SKILL_DIR}/prompts/score-agent.md`.
 
-For each section, verify it has substantive content (not just placeholders or TBD):
+Launch a **forked** score agent with these substitutions:
+- `{FEATURE_DIR}` = feature directory path
+- `{TEST_PLAN_PATH}` = `<feature_dir>/TestPlan.md`
+- `{STRATEGY_TEXT}` = raw strategy description text from Step 1
+- `{CALIBRATION_DIR}` = `${CLAUDE_SKILL_DIR}/calibration/`
 
-| Section | Check |
-|---------|-------|
-| 1.1 Purpose | Does it clearly state what is being tested and why? |
-| 1.2 Scope | Are in-scope and out-of-scope explicitly defined? |
-| 1.3 Test Objectives | Are there 3-7 concrete, measurable objectives? |
-| 2.1 Test Levels | Are the selected levels appropriate for the feature type? |
-| 2.3 Priorities | Are P0/P1/P2 definitions specific to this feature, not generic? |
-| 3.1 Cluster Config | Are versions and dependencies specified or marked TBD? |
-| 3.2 Test Data | Are test data requirements concrete enough to act on? |
-| 4 Endpoints/Methods | Are entries grounded in source documents, not fabricated? |
-| 6 Risks | Are risks specific to this feature, not boilerplate? |
-| 7 Environment | Is there enough detail to set up a test environment? |
+The score agent returns a structured rubric assessment with per-criterion scores and a grounding cross-reference table.
 
-### 3. Consistency Check
+### Step 3: Review (fork)
 
-- Do the endpoints in Section 4 align with the scope in Section 1.2?
-- Do the test levels in Section 2.1 match the interface types in Section 4?
-- Are priority assignments in Section 4 consistent with the definitions in Section 2.3?
-- Does Section 8.2 list all endpoints from Section 4?
+Read the review agent prompt from `${CLAUDE_SKILL_DIR}/prompts/review-agent.md`.
 
-## Output Format
+Launch a **forked** review agent with these substitutions:
+- `{FEATURE_DIR}` = feature directory path
+- `{ASSESSMENT_TEXT}` = full output from the score agent (Step 2)
+- `{FIRST_PASS}` = `true` (first assessment cycle)
 
-Return your findings in this exact structure:
+The review agent writes `<feature_dir>/TestPlanReview.md` with rubric scores, feedback, and validated frontmatter.
 
-```markdown
-## Test Plan Review
+### Step 4: Check Criteria and Revise (max 2 cycles)
 
-### Overall Assessment
-{1-2 sentences: is this test plan ready for test case generation, or does it need improvement first?}
+After the review agent completes, read the review frontmatter:
 
-### Frontmatter
-| Field | Status | Issue |
-|-------|--------|-------|
-| {field} | {Valid / Invalid / Missing} | {brief description or "—"} |
-
-### Completeness
-| Section | Status | Issue |
-|---------|--------|-------|
-| {section} | {Complete / Partial / Missing} | {brief description or "—"} |
-
-### Consistency Issues
-{bulleted list, or "No consistency issues found."}
-
-### Suggested Improvements
-{numbered list of concrete, actionable changes to the test plan — e.g., "Rewrite Section 2.3 P0 definition to reference specific acceptance criteria instead of generic 'core functionality'" }
-
-{If no improvements needed: "No improvements needed — the test plan is ready for test case generation."}
+```bash
+uv run python scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
 ```
 
-Be specific and actionable. Do not give vague feedback like "improve the scope section." Instead say exactly what is missing and how to fix it.
+If all five criteria in `scores.*` are `2`, proceed to Step 5 (done).
+
+If any criterion in `scores.*` is `< 2`, enter the revision loop.
+
+#### Revision Loop
+
+Initialize cycle counter: `reassess_cycle=0`
+
+**4a. Filter for revision:**
+
+```bash
+uv run python scripts/filter_for_revision.py <feature_dir>
+```
+
+If output is `SKIP`, stop the loop and proceed to Step 5.
+
+**4b. Launch revise agent (fork):**
+
+Read the revise agent prompt from `${CLAUDE_SKILL_DIR}/prompts/revise-agent.md`.
+
+Launch with substitutions:
+- `{FEATURE_DIR}` = feature directory path
+- `{STRATEGY_TEXT}` = raw strategy text from Step 1
+
+The revise agent edits TestPlan.md (only sections mapped to failing criteria) and sets `auto_revised=true`.
+
+**4c. Check if reassessment is needed:**
+
+```bash
+uv run python scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
+```
+
+If `auto_revised` is `false`, the revise agent found nothing to change — stop the loop.
+
+Increment `reassess_cycle`. If `reassess_cycle >= 2`, stop — max cycles reached. Proceed to Step 5.
+
+**4d. Save cumulative state:**
+
+```bash
+uv run python scripts/preserve_review_state.py save <feature_dir>
+```
+
+**4e. Re-score:**
+
+Delete the existing review file to force a clean re-assessment:
+```bash
+rm <feature_dir>/TestPlanReview.md
+```
+
+Repeat Step 2 (score agent) with the revised TestPlan.md.
+
+**4f. Re-review:**
+
+Repeat Step 3 (review agent) with `{FIRST_PASS}=false`.
+
+**4g. Restore before_scores and revision history:**
+
+```bash
+uv run python scripts/preserve_review_state.py restore <feature_dir>
+```
+
+**4h. Check criteria again:**
+
+Read the review frontmatter. If all criteria are now `2`, stop.
+If any criterion remains `< 2` and cycles remain, go back to 4a.
+If cycles are exhausted, stop and proceed to Step 5.
+
+### Step 5: Present Results
+
+Read the final review file and present a summary to the user:
+
+```markdown
+## Test Plan Review — {feature_name}
+
+**Score: {score}/10 — Verdict: {verdict}**
+
+| Criterion | Score |
+|-----------|-------|
+| Specificity | {n}/2 |
+| Grounding | {n}/2 |
+| Scope Fidelity | {n}/2 |
+| Actionability | {n}/2 |
+| Consistency | {n}/2 |
+
+{If before_score differs from score:}
+**Delta: {before_score} → {score} ({+/-difference})**
+
+{If verdict = Ready:}
+The test plan is ready for test case generation. Run `/test-plan.create-cases <feature_dir>` to proceed.
+
+{If verdict = Revise (after max cycles):}
+The test plan improved but still has issues. Review `<feature_dir>/TestPlanReview.md` for remaining feedback. Consider providing additional source documents (ADR, API spec) to resolve grounding gaps.
+
+{If verdict = Rework:}
+The test plan needs significant rework. This may indicate the source strategy lacks sufficient detail. Review `<feature_dir>/TestPlanReview.md` for specific issues.
+
+{If this plan is already in an open PR and reviewer comments exist:}
+Use `/test-plan.resolve-feedback <PR_URL>` to triage and apply PR feedback items.
+```
+
+## What This Skill Does NOT Do
+
+- Does NOT generate test plans (use `/test-plan.create`)
+- Does NOT generate test cases (use `/test-plan.create-cases`)
+- Does NOT modify the source strategy
+- Does NOT submit anything to Jira
+- Does NOT resolve GitHub PR comments (use `/test-plan.resolve-feedback <PR_URL>`)
+
+$ARGUMENTS

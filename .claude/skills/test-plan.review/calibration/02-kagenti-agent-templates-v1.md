@@ -1,0 +1,36 @@
+# Calibration Example 2: kagenti_agent_templates_1/TestPlan.md
+
+**Source**: `kagenti_agent_templates_1/TestPlan.md` (RHAISTRAT-1290)
+**Test plan version**: Without test cases (Sections 5/8 unpopulated), no YAML frontmatter
+
+## Score Table
+
+| Criterion | Score | Evidence | Rationale |
+|-----------|-------|----------|-----------|
+| Specificity | 2 | P0 references kagenti deployment artifacts specifically: "labels, well-known.json, agentRuntime; agents deploy successfully on OpenShift AI; AgentCards are discoverable." Risks name kagenti runtime breaking changes, model server auth variation, well-known.json schema absence, GenAI Studio export alignment. | Swap test: "Kagenti runtime behavior changes break template-generated agentRuntime configurations" does not apply to any other feature. Risk about "No specification for well-known.json schema" is specific to this feature's AgentCard serving concern. |
+| Grounding | 1 | Section 4 uses "Components Under Test" rather than API endpoints, which is a better fit for this feature type. Entries (Containerfile, well-known.json, agentRuntime CR, evaluate.py, MLflow, GenAI Studio export) align with strategy themes. However, "GenAI Studio code export" as a CLI/UI Component in Section 4 goes beyond what the strategy explicitly scopes — the strategy mentions export integration but doesn't specify it as a testable component interface. MLflow versions are not sourced. | Similar to Example 1: concepts are grounded but specific interface characterizations extrapolate beyond the strategy text. The GenAI Studio inclusion in Section 4 is borderline scope creep for grounding purposes. |
+| Scope Fidelity | 2 | All strategy deliverables mapped to objectives. Out-of-scope list is more specific than Example 1 (adds "post-deployment monitoring, scaling, performance under load", "multi-cluster deployment", "custom template creation"). Section 4 includes GenAI Studio export which IS in-scope per the strategy. | No orphans in either direction. Each in-scope item has a corresponding objective. Out-of-scope items do not appear in Section 4. |
+| Actionability | 0 | OpenShift AI version: "TBD". Kagenti operator version: "TBD". No concrete OpenShift version specified. MLflow setup details: "local or cluster-based" without version. Model server: "vLLM, TGI, or compatible endpoint" with no version. Test data section lists categories but no formats or examples. No sample YAML, no sample JSON. | A platform engineer reading Sections 3 and 7 would need to ask: "What OpenShift version?", "What RHOAI version?", "What kagenti operator version?", "What MLflow version?", "What are the sample data formats?", "What container registry specifically?" — more than 5 questions. Multiple critical details are "TBD" with no indication of what would resolve them. |
+| Consistency | 1 | Section 4 has 8 entries but Section 8.2 lists them without any test case mappings (placeholder state). Test levels in 2.1 (Template Integration, Container Build, Deployment, API Integration, Functional, Documentation) are reasonable but "Documentation Testing" as a test level has no corresponding interface type in Section 4. Section 5 is entirely unpopulated ("Note: Test cases have not been generated yet"). | Section 8.2 lists all Section 4 components (passes that check), but the empty test case columns mean coverage cannot be verified. "Documentation Testing" as a test level has no counterpart in Section 4. Minor but real inconsistency. The placeholder state of Sections 5/8.1 is expected for a pre-TC-generation plan, so partial credit. |
+
+**Total: 6/10 — Verdict: Rework**
+
+## Key Observations
+
+- Scores 0 on Actionability due to pervasive "TBD" values and no concrete environment details — this is the primary failure
+- Strong specificity (same feature, similar quality of feature-specific language)
+- No YAML frontmatter — would fail the frontmatter check entirely (structural issue separate from rubric)
+- The plan is in a pre-test-case state, which naturally weakens consistency but does not excuse the actionability gaps
+- Grounding is comparable to Example 1 (reasonable inferences, not fabrications)
+- A Rework verdict here is correct: the actionability zero means the plan needs significant environment detail before it's useful, regardless of other scores
+
+## Comparison with Example 1
+
+| Criterion | Example 1 | Example 2 | Delta | Explanation |
+|-----------|-----------|-----------|-------|-------------|
+| Specificity | 2 | 2 | 0 | Both handle feature-specific language well |
+| Grounding | 1 | 1 | 0 | Same source material, similar extrapolation patterns |
+| Scope Fidelity | 2 | 2 | 0 | Both align well with strategy |
+| Actionability | 1 | 0 | -1 | Example 1 has concrete versions (OCP 4.16+, podman 4.x+, Python 3.11+); Example 2 has "TBD" for most |
+| Consistency | 2 | 1 | -1 | Example 1 has populated TCs and coverage; Example 2 has placeholders and a test-level mismatch |
+| **Total** | **8** | **6** | **-2** | Example 1 passes; Example 2 fails on actionability zero |

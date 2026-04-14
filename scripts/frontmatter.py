@@ -5,9 +5,10 @@ Skills call this script instead of writing YAML by hand, ensuring
 schema-validated frontmatter on all test plan artifacts.
 
 Supported artifact types (auto-detected from filename):
-    - test-plan:  TestPlan.md files
-    - test-case:  TC-*.md files
-    - test-gaps:  TestPlanGaps.md files
+    - test-plan:        TestPlan.md files
+    - test-case:        TC-*.md files
+    - test-gaps:        TestPlanGaps.md files
+    - test-plan-review: TestPlanReview.md files
 
 Usage:
     # Show schema for a file type
@@ -130,11 +131,31 @@ def cmd_set(args):
 
         field_name, value_str = field_value.split("=", 1)
 
-        if field_name not in schema:
-            print(f"Error: unknown field '{field_name}' for schema "
-                  f"'{schema_type}'", file=sys.stderr)
-            sys.exit(1)
-        data[field_name] = _coerce_value(value_str, schema[field_name])
+        if "." in field_name:
+            parent, child = field_name.split(".", 1)
+            if parent not in schema:
+                print(f"Error: unknown field '{parent}' for schema "
+                      f"'{schema_type}'", file=sys.stderr)
+                sys.exit(1)
+            parent_spec = schema[parent]
+            if parent_spec.get("type") != "dict" or "fields" not in parent_spec:
+                print(f"Error: field '{parent}' does not support "
+                      f"sub-fields", file=sys.stderr)
+                sys.exit(1)
+            if child not in parent_spec["fields"]:
+                print(f"Error: unknown sub-field '{child}' for "
+                      f"'{parent}'", file=sys.stderr)
+                sys.exit(1)
+            if parent not in data:
+                data[parent] = {}
+            data[parent][child] = _coerce_value(
+                value_str, parent_spec["fields"][child])
+        else:
+            if field_name not in schema:
+                print(f"Error: unknown field '{field_name}' for schema "
+                      f"'{schema_type}'", file=sys.stderr)
+                sys.exit(1)
+            data[field_name] = _coerce_value(value_str, schema[field_name])
 
     # Auto-set last_updated if not explicitly provided and schema has it
     if "last_updated" in schema and "last_updated" not in data:

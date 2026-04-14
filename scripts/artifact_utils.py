@@ -6,7 +6,7 @@ Skills and scripts use this module instead of regex-parsing markdown prose.
 Frontmatter is stored as YAML between --- delimiters at the top of markdown files.
 
 Requires:
-    pip install pyyaml
+    uv pip install -r requirements.txt
 """
 
 import os
@@ -28,11 +28,12 @@ except ImportError:
 
 # Each schema is a dict of field_name -> field_spec.
 # field_spec keys:
-#   type:     "string" | "int" | "bool" | "list"
+#   type:     "string" | "int" | "bool" | "list" | "dict"
 #   required: bool (default False)
 #   enum:     list of allowed values (optional)
 #   pattern:  regex pattern the value must match (optional, strings only)
 #   default:  default value when not provided (optional)
+#   fields:   sub-field specs (required for type "dict")
 
 SCHEMAS = {
     "test-plan": {
@@ -130,6 +131,126 @@ SCHEMAS = {
             "required": True,
         },
     },
+    "test-plan-review": {
+        "feature": {
+            "type": "string",
+            "required": True,
+        },
+        "strat_key": {
+            "type": "string",
+            "required": True,
+            "pattern": r"^RHAISTRAT-\d+$",
+        },
+        "score": {
+            "type": "int",
+            "required": True,
+            "min": 0,
+            "max": 10,
+        },
+        "pass": {
+            "type": "bool",
+            "required": True,
+        },
+        "verdict": {
+            "type": "string",
+            "required": True,
+            "enum": ["Ready", "Revise", "Rework"],
+        },
+        "scores": {
+            "type": "dict",
+            "required": True,
+            "fields": {
+                "specificity": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "grounding": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "scope_fidelity": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "actionability": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "consistency": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+            },
+        },
+        "auto_revised": {
+            "type": "bool",
+            "required": True,
+            "default": False,
+        },
+        "before_score": {
+            "type": "int",
+            "required": False,
+            "default": None,
+            "min": 0,
+            "max": 10,
+        },
+        "before_scores": {
+            "type": "dict",
+            "required": False,
+            "default": None,
+            "fields": {
+                "specificity": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "grounding": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "scope_fidelity": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "actionability": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+                "consistency": {
+                    "type": "int",
+                    "required": True,
+                    "min": 0,
+                    "max": 2,
+                },
+            },
+        },
+        "error": {
+            "type": "string",
+            "required": False,
+            "default": None,
+        },
+        "last_updated": {
+            "type": "string",
+            "required": True,
+        },
+    },
 }
 
 
@@ -140,6 +261,8 @@ def detect_schema_type(path):
     basename = os.path.basename(path)
     if basename == "TestPlanGaps.md":
         return "test-gaps"
+    if basename == "TestPlanReview.md":
+        return "test-plan-review"
     if basename.startswith("TC-"):
         return "test-case"
     if basename == "TestPlan.md":
@@ -181,6 +304,13 @@ def _validate_field(name, value, spec):
         if not isinstance(value, int) or isinstance(value, bool):
             errors.append(
                 f"{name}: expected int, got {type(value).__name__}")
+        else:
+            if "min" in spec and value < spec["min"]:
+                errors.append(
+                    f"{name}: {value} is less than minimum {spec['min']}")
+            if "max" in spec and value > spec["max"]:
+                errors.append(
+                    f"{name}: {value} is greater than maximum {spec['max']}")
 
     elif expected_type == "bool":
         if not isinstance(value, bool):
@@ -192,6 +322,18 @@ def _validate_field(name, value, spec):
             errors.append(
                 f"{name}: expected list, got {type(value).__name__}")
 
+    elif expected_type == "dict":
+        if not isinstance(value, dict):
+            errors.append(
+                f"{name}: expected dict, got {type(value).__name__}")
+        elif "fields" in spec:
+            for sub_name, sub_spec in spec["fields"].items():
+                errors.extend(_validate_field(
+                    f"{name}.{sub_name}", value.get(sub_name), sub_spec))
+            for sub_key in value:
+                if sub_key not in spec["fields"]:
+                    errors.append(f"{name}: unknown sub-field '{sub_key}'")
+
     return errors
 
 
@@ -200,7 +342,7 @@ def validate(data, schema_type):
 
     Args:
         data: dict of frontmatter fields
-        schema_type: one of "test-plan", "test-case", "test-gaps"
+        schema_type: one of the keys in SCHEMAS
 
     Returns:
         list of error strings (empty if valid)
@@ -223,6 +365,39 @@ def validate(data, schema_type):
     for field_name, field_spec in schema.items():
         errors.extend(_validate_field(
             field_name, data.get(field_name), field_spec))
+
+    if schema_type == "test-plan-review":
+        criteria = (
+            "specificity",
+            "grounding",
+            "scope_fidelity",
+            "actionability",
+            "consistency",
+        )
+        scores = data.get("scores")
+        score = data.get("score")
+        if isinstance(scores, dict) and isinstance(score, int):
+            if all(isinstance(scores.get(k), int) for k in criteria):
+                expected = sum(scores[k] for k in criteria)
+                if score != expected:
+                    errors.append(
+                        f"score: expected {expected} from scores.*, got {score}"
+                    )
+
+        before_scores = data.get("before_scores")
+        before_score = data.get("before_score")
+        if (before_score is None) != (before_scores is None):
+            errors.append(
+                "before_score and before_scores must both be set or both be null"
+            )
+        if isinstance(before_scores, dict) and isinstance(before_score, int):
+            if all(isinstance(before_scores.get(k), int) for k in criteria):
+                expected_before = sum(before_scores[k] for k in criteria)
+                if before_score != expected_before:
+                    errors.append(
+                        "before_score: expected "
+                        f"{expected_before} from before_scores.*, got {before_score}"
+                    )
 
     return errors
 
@@ -257,6 +432,19 @@ def get_schema_yaml(schema_type):
             entry["pattern"] = spec["pattern"]
         if "default" in spec:
             entry["default"] = spec["default"]
+        if "min" in spec:
+            entry["min"] = spec["min"]
+        if "max" in spec:
+            entry["max"] = spec["max"]
+        if "fields" in spec:
+            entry["fields"] = {
+                k: {
+                    "type": v["type"],
+                    **({"min": v["min"]} if "min" in v else {}),
+                    **({"max": v["max"]} if "max" in v else {}),
+                }
+                for k, v in spec["fields"].items()
+            }
 
         if spec.get("required", False):
             output["required"][name] = entry
@@ -330,7 +518,7 @@ def write_frontmatter(path, data, schema_type):
     Args:
         path: file path
         data: dict of frontmatter fields
-        schema_type: one of "test-plan", "test-case", "test-gaps"
+        schema_type: one of the keys in SCHEMAS
 
     Raises:
         ValidationError: if data fails schema validation
@@ -374,7 +562,10 @@ def update_frontmatter(path, updates, schema_type):
     """
     data, body = read_frontmatter(path)
     for key, value in updates.items():
-        data[key] = value
+        if isinstance(value, dict) and isinstance(data.get(key), dict):
+            data[key].update(value)
+        else:
+            data[key] = value
 
     apply_defaults(data, schema_type)
     errors = validate(data, schema_type)

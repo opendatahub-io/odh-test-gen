@@ -169,24 +169,31 @@ After generating the test plan, collect all gaps reported by the three sub-agent
 7. **If the user chooses option 2 or no gaps exist**: Proceed to Step 4.
 8. **If the user chooses option 3**: Proceed to Step 4, and after the review is complete, automatically invoke `/test-plan.create-cases` with the feature directory.
 
-### Step 4: Review and Improve
+### Step 4: Review, Score, and Improve
 
-After the gaps flow is complete, invoke the **`test-plan.review`** forked skill, passing the full content of the generated TestPlan.md.
+After the gaps flow is complete, invoke the internal **`test-plan.review`** skill with the feature directory.
 
-The reviewer will return:
-- Completeness and consistency assessment
-- Concrete improvement suggestions
+The reviewer runs the quality rubric (5 criteria, 0-2 each, 10-point scale):
+- **Specificity** — feature-specific vs boilerplate
+- **Grounding** — traceable to source material vs fabricated
+- **Scope Fidelity** — matches strategy scope
+- **Actionability** — a QE engineer could start testing
+- **Consistency** — sections agree with each other
+
+The reviewer handles auto-revision internally (up to 2 cycles) and writes `<feature_name>/TestPlanReview.md` with scores and feedback.
 
 **Handle the review output:**
 
-1. **Auto-fix**: Apply any suggested improvements that are clearly correct (e.g., consistency fixes, missing entries in Section 8.2, generic priority definitions that should be feature-specific). Edit the TestPlan.md directly.
-2. **Present summary**: Show the user the final review summary along with any remaining gaps from `TestPlanGaps.md`, so they have full visibility into the test plan's quality before proceeding to test case generation.
+1. **Read the verdict** from `<feature_name>/TestPlanReview.md` frontmatter
+2. **Present summary**: Show the user the final score, verdict, and any remaining gaps from `TestPlanGaps.md`, so they have full visibility into the test plan's quality before proceeding to test case generation
+3. If verdict is **Rework**, advise the user to provide additional source documents (ADR, API spec) to resolve quality issues before generating test cases
 
 ### What this skill does NOT do
 
 - Does NOT generate individual test case files
 - Does NOT fetch child stories under the epic
 - Does NOT fetch the Google Doc ADR — it reads a local file only
+- Does NOT resolve GitHub PR review comments (use `/test-plan.resolve-feedback <PR_URL>` after publishing)
 - Section 5 (Test Cases): left as placeholder — to be filled later in the process
 - Section 8.1 (Test Case Summary): left as placeholder — to be filled later in the process
 - Section 8.2 Test Cases and Coverage columns: left empty — to be filled later in the process
