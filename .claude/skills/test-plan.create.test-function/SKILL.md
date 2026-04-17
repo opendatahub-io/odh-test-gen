@@ -51,10 +51,12 @@ Parse `$ARGUMENTS` to extract these paths, then read the files.
 
 Create test function code with:
 
-1. **Decorators/Markers**:
-   - Priority marker (from TC priority: P0, P1, P2)
-   - Category marker (from TC category: API, E2E, UNIT, etc.)
-   - Other markers from conventions
+1. **Decorators/Markers** (derive from repository conventions):
+   - Read available markers from conventions file (e.g., `smoke`, `tier1`, `tier2`, `p0`, `api`, `e2e`)
+   - Map TC priority to repo markers (e.g., P0 → `tier1` or `p0` depending on repo)
+   - Map TC category to repo markers (e.g., API → `api` marker if available)
+   - **Do NOT invent markers** - only use markers actually defined in the repository
+   - If repo has no markers, omit decorators
 
 2. **Function Signature**:
    - Use provided function name exactly
@@ -62,10 +64,10 @@ Create test function code with:
    - Follow repository parameter patterns
 
 3. **Docstring**:
-   - Reference TC ID: `Test case: {tc_id}`
+   - Reference TC file: `{tc_id}` (e.g., `TC-API-001`)
    - Brief description from TC objective
-   - List preconditions
-   - List expected outcomes
+   - List preconditions (optional, if helpful)
+   - List expected outcomes (optional, if helpful)
 
 4. **Implementation** (AAA pattern):
    - **Arrange**: Implement preconditions (setup, test data)
@@ -94,14 +96,7 @@ Start with decorators/markers, then function definition, then docstring, then im
 @pytest.mark.p0
 @pytest.mark.api
 def test_retrieve_tool_calling_metadata(api_client):
-    """
-    Test case: TC-API-001
-    Verify that the Model Catalog BFF API returns complete tool-calling metadata.
-    
-    Preconditions:
-    - RHOAI 3.4 cluster with Model Catalog BFF API deployed
-    - At least one validated tool-calling model ingested
-    """
+    """TC-API-001: Verify Model Catalog BFF API returns complete tool-calling metadata."""
     # Arrange
     model_id = "granite-3.1-8b-instruct"
     
@@ -125,12 +120,21 @@ def test_retrieve_tool_calling_metadata(api_client):
 - Don't fabricate functions that don't exist
 - Follow the repository's test structure
 
+### Use Repository's Actual Markers
+
+- Read `conventions` to see available pytest markers (e.g., `smoke`, `tier1`, `p0`, `api`)
+- Map TC metadata to repository markers:
+  - TC priority (P0/P1/P2) → repo's priority markers
+  - TC category (API/E2E/UNIT) → repo's category markers
+- **Only use markers that exist in the repository**
+- If no markers defined, omit decorators
+
 ### Be Specific
 
 - Use realistic values from TC (not "test123" or "example.com")
 - Implement concrete assertions (not `# TODO: add assertion`)
 - Include assertion messages explaining what's being checked
-- Reference the TC ID in docstring
+- Reference the TC ID in docstring (format: `TC-XXX-NNN: description`)
 
 ### Add TODOs Sparingly
 
