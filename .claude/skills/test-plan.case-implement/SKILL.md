@@ -244,7 +244,59 @@ Store: `conventions` (dict or markdown content)
 
 ---
 
-**Step 1: Check if component repo already has pattern guides (CHECK FIRST)**
+**Step 0: Check for repository-specific instructions (CHECK FIRST)**
+
+Check for conventional agentic instruction files in the code repository (CLAUDE.md, AGENTS.md, CONSTITUTION.md):
+
+```bash
+cd <code_repo_path>
+# Check both .claude/ and root for each file type
+repo_files=()
+for filename in CLAUDE.md AGENTS.md CONSTITUTION.md; do
+    if [ -f ".claude/$filename" ]; then
+        repo_files+=(".claude/$filename")
+    elif [ -f "$filename" ]; then
+        repo_files+=("$filename")
+    fi
+done
+
+# Print found files (one per line)
+printf '%s\n' "${repo_files[@]}"
+```
+
+If any files found:
+1. Read all found files
+2. Combine content into a single context document with clear section headers:
+   ```markdown
+   # Repository-Specific Instructions
+
+   ## From CLAUDE.md
+   {content if found}
+
+   ## From AGENTS.md
+   {content if found}
+
+   ## From CONSTITUTION.md
+   {content if found}
+   ```
+3. Write to `<feature_dir>/repo_instructions.md`
+4. Store path as `repo_instructions_file`
+5. Log: "✓ Found repo instructions: {comma-separated list of files}"
+
+If NO files found:
+- Set `repo_instructions_file = None`
+- Continue (not required, but helpful when available)
+
+**What these files typically contain:**
+- **CLAUDE.md**: Codebase context, conventions, testing guidance, code style
+- **AGENTS.md**: Agent-specific instructions, workflows, tool usage patterns
+- **CONSTITUTION.md**: Hard constraints, principles, rules that must not be violated
+
+**IMPORTANT**: These files provide high-authority repo-specific guidance that supplements odh-test-context and pattern guides.
+
+---
+
+**Step 1: Check if component repo already has pattern guides**
 
 Look for existing guides in code repo (may have been generated previously by Tiger Team):
 ```bash
@@ -723,6 +775,7 @@ for tc in test_cases_for_file:
             'framework': framework,
             'conventions_file': f"{feature_dir}/test_implementation_conventions.md",
             'pattern_guide': testing_pattern_guide if testing_pattern_guide else None,
+            'repo_instructions_file': repo_instructions_file if repo_instructions_file else None,  # From Step 1.2b Step 0
             'common_setup': common_setup_requirements,  # From Step 6
             'target_repo': code_repo_path,
             'placement': tc['placement_location']
@@ -738,6 +791,8 @@ Sub-agent receives:
 - Function name to generate
 - Framework (pytest, unittest, etc.)
 - Conventions to follow
+- Pattern guide (Tiger Team)
+- Repo-specific instructions (CLAUDE.md, AGENTS.md, CONSTITUTION.md - if available)
 - Target repo context
 - Placement (same_repo/downstream)
 
@@ -787,7 +842,7 @@ For each generated test file (with valid syntax):
 
    **If verdict == "Revise"** (score 4-6):
    - Log: "⚠ Test quality score: {score}/10 - auto-revising"
-   - Re-invoke `test-plan.create.test-function` sub-agent with feedback:
+   - Re-invoke `test-plan.create.test-function` sub-agent with same args (tc_file, conventions, pattern_guide, repo_instructions_file, etc.) plus feedback:
      ```
      Additional instructions: {issues from scorer}
      ```

@@ -17,6 +17,7 @@ The orchestrating skill will pass you file paths in `$ARGUMENTS`:
 - **`--framework`**: Test framework (pytest, Go testing, Jest, etc.)
 - **`--conventions-file`**: Path to conventions markdown (from odh-test-context)
 - **`--pattern-guide`** (optional): Path to Tiger Team pattern guide (pytest-tests.md, go-tests.md, etc.)
+- **`--repo-instructions-file`** (optional): Path to combined repo instructions (CLAUDE.md, AGENTS.md, CONSTITUTION.md)
 - **`--common-setup`** (optional): JSON list of common preconditions used by 2+ TCs (generate fixtures for these)
 - **`--target-repo`**: Path to code repository
 - **`--placement`**: Where test will live (same_repo or downstream)
@@ -48,7 +49,14 @@ Parse `$ARGUMENTS` to extract these paths, then read the files.
    - Assertion styles
    - Anti-patterns to avoid
 
-4. **Read common setup** (`--common-setup`, if provided):
+4. **Read repository instructions** (`--repo-instructions-file`, if provided):
+   - Combined content from CLAUDE.md, AGENTS.md, CONSTITUTION.md
+   - Repository-specific conventions and code style
+   - Testing guidelines and patterns
+   - Hard constraints and principles (from CONSTITUTION.md)
+   - This supplements conventions and pattern guides with high-authority repo-specific context
+
+5. **Read common setup** (`--common-setup`, if provided):
    - List of preconditions used by multiple TCs
    - For each common precondition, generate fixture/setup function
    - Reference these fixtures in the test function instead of duplicating setup code
@@ -171,10 +179,16 @@ Do NOT add TODOs for things clearly specified in the TC.
 ## Instructions
 
 1. Parse arguments to get all file paths
-2. Read TC file, conventions file, pattern guide (if provided)
+2. Read TC file, conventions file, pattern guide (if provided), repo instructions (if provided)
 3. Generate test function matching repository patterns exactly
 4. Return only the code (no markdown, no explanations)
 
-**Critical**: Match the repository's exact style. If pattern guide shows Ginkgo `By()` statements, use them. If it shows testify mocks, use those. Don't impose your own style.
+**Critical**: Match the repository's exact style. Follow this priority order:
+1. **CONSTITUTION.md** - hard constraints that must never be violated
+2. **CLAUDE.md / AGENTS.md** - repo-specific testing requirements and conventions
+3. **Pattern guide** - framework-specific patterns (Ginkgo `By()`, testify mocks, etc.)
+4. **Conventions file** - general framework and style guidelines
+
+Don't impose your own style - follow the repository's established patterns.
 
 $ARGUMENTS
