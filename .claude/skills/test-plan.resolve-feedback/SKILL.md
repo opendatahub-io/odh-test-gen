@@ -57,9 +57,17 @@ Parse repo name from `<owner>/<repo>`.
 If found (returns path):
 ```bash
 cd <local_repo_path>
-git fetch origin
-git checkout <head_branch> 2>/dev/null || git checkout -b <head_branch> origin/<head_branch>
-git pull origin <head_branch>
+current_branch=$(git branch --show-current)
+
+if [ "$current_branch" = "<head_branch>" ]; then
+    # Already on the PR branch, just pull latest
+    git pull origin <head_branch>
+else
+    # Need to switch to PR branch
+    git fetch origin
+    git checkout <head_branch> 2>/dev/null || git checkout -b <head_branch> origin/<head_branch>
+    git pull origin <head_branch>
+fi
 ```
 - Set `repo_path` to `<local_repo_path>`
 - Log: "✓ Using local clone: <local_repo_path> (updated)"

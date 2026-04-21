@@ -59,12 +59,20 @@ If feature source is a GitHub branch:
 2. Parse owner/repo from URL (e.g., `fege/test-plan`)
 3. **Check if repo exists locally** using `scripts/utils/repo_utils.py::find_repo_in_common_locations(repo_name)`:
    - If found (returns path):
-     - Update to latest:
+     - Check if already on branch, update to latest:
        ```bash
        cd <local_repo_path>
-       git fetch origin
-       git checkout <branch_name> 2>/dev/null || git checkout -b <branch_name> origin/<branch_name>
-       git pull origin <branch_name>
+       current_branch=$(git branch --show-current)
+
+       if [ "$current_branch" = "<branch_name>" ]; then
+           # Already on the branch, just pull latest
+           git pull origin <branch_name>
+       else
+           # Need to switch branches
+           git fetch origin
+           git checkout <branch_name> 2>/dev/null || git checkout -b <branch_name> origin/<branch_name>
+           git pull origin <branch_name>
+       fi
        ```
      - Set `feature_dir` to `<local_repo_path>/<feature_name>`
      - Log: "✓ Using local clone: <local_repo_path> (updated)"
