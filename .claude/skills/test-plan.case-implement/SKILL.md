@@ -52,55 +52,6 @@ If no feature source can be determined, ask the user for:
 
 ### Step 0: Pre-flight Checks
 
-#### 0.0 Verify test-plan scripts are available
-
-Check for required scripts directory:
-
-```bash
-# Try to locate test-plan scripts in order of preference
-TESTPLAN_SCRIPTS=""
-
-# 1. Current directory (if user is in test-plan repo)
-if [ -f "./scripts/frontmatter.py" ]; then
-    TESTPLAN_SCRIPTS="$(pwd)/scripts"
-# 2. Dedicated install location (for registry users)
-elif [ -d "$HOME/.claude/test-plan-scripts/scripts" ]; then
-    TESTPLAN_SCRIPTS="$HOME/.claude/test-plan-scripts/scripts"
-# 3. Common dev location
-elif [ -d "$HOME/Code/test-plan/scripts" ]; then
-    TESTPLAN_SCRIPTS="$HOME/Code/test-plan/scripts"
-fi
-
-# Verify scripts exist
-if [ -z "$TESTPLAN_SCRIPTS" ] || [ ! -f "$TESTPLAN_SCRIPTS/frontmatter.py" ]; then
-    cat <<'SETUP_MSG'
-❌ Test-plan scripts not found
-
-This skill requires Python utility scripts. Please set up:
-
-Option 1 (Recommended - for registry users):
-  git clone https://github.com/fege/test-plan ~/.claude/test-plan-scripts
-  cd ~/.claude/test-plan-scripts
-  uv pip install -e ".[dev]"
-
-Option 2 (For contributors):
-  git clone https://github.com/fege/test-plan ~/Code/test-plan
-  cd ~/Code/test-plan
-  uv pip install -e ".[dev]"
-
-Then re-run this skill.
-SETUP_MSG
-    exit 1
-fi
-
-echo "✓ Using scripts from: $(dirname $TESTPLAN_SCRIPTS)"
-```
-
-**IMPORTANT**: All script calls in this skill use `$TESTPLAN_SCRIPTS/`:
-- `uv run python $TESTPLAN_SCRIPTS/frontmatter.py ...`
-- `uv run python $TESTPLAN_SCRIPTS/repo.py ...`
-
-Store: `TESTPLAN_SCRIPTS` (absolute path to scripts directory)
 
 #### 0.1 Fetch feature artifacts
 
@@ -109,7 +60,7 @@ If feature source is a GitHub branch:
 2. Parse owner/repo from URL (e.g., `fege/test-plan`)
 3. **Check if repo exists locally**:
    ```bash
-   repo_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py find "<repo_name>")
+   repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find "<repo_name>")
    ```
    - If found (exit code 0, prints path):
      - Check if already on branch, update to latest:
@@ -132,7 +83,7 @@ If feature source is a GitHub branch:
    - If NOT found (exit code 1, empty output):
      - Clone the repo:
        ```bash
-       clone_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py clone "<repo_url>" "~/Code/<repo_name>")
+       clone_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py clone "<repo_url>" "~/Code/<repo_name>")
        ```
      - Checkout branch:
        ```bash
@@ -154,7 +105,7 @@ If feature source is a local path:
 4. Check at least one `TC-*.md` file exists in `test_cases/`
 5. Read `TestPlan.md` frontmatter to extract: `source_key`, `feature`, `version`:
    ```bash
-   uv run python $TESTPLAN_SCRIPTS/frontmatter.py read <feature_dir>/TestPlan.md
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlan.md
    ```
 
 If any check fails, inform the user and stop.
@@ -163,7 +114,7 @@ If any check fails, inform the user and stop.
 
 Find odh-test-context repository:
 ```bash
-odh_result=$(uv run python $TESTPLAN_SCRIPTS/repo.py find-known odh-test-context)
+odh_result=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-known odh-test-context)
 odh_path=$(echo "$odh_result" | jq -r '.path')
 odh_url=$(echo "$odh_result" | jq -r '.url')
 ```
@@ -244,7 +195,7 @@ Store: `code_repo` (e.g., `opendatahub-io/odh-dashboard`)
 
 1. Check common locations for the code repository:
    ```bash
-   code_repo_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py find-target "<code_repo>")
+   code_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-target "<code_repo>")
    ```
    This checks:
    - `~/Code/<repo_name>`
@@ -260,7 +211,7 @@ Store: `code_repo` (e.g., `opendatahub-io/odh-dashboard`)
    - Ask user via AskUserQuestion: `Clone <code_repo>? [yes/no/specify-path]`
    - If **yes**: Clone it:
      ```bash
-     code_repo_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py clone "<repo_url>" "~/Code/<repo_name>")
+     code_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py clone "<repo_url>" "~/Code/<repo_name>")
      ```
    - If **specify-path**: Ask for manual path, validate it exists
    - If **no**: Stop (cannot proceed without code repo)
@@ -431,7 +382,7 @@ If no pattern guides exist in component repo:
 
 1. Locate Tiger Team repository:
    ```bash
-   tiger_result=$(uv run python $TESTPLAN_SCRIPTS/repo.py find-known tiger-team)
+   tiger_result=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-known tiger-team)
    tiger_path=$(echo "$tiger_result" | jq -r '.path')
    tiger_url=$(echo "$tiger_result" | jq -r '.url')
    ```
@@ -557,11 +508,11 @@ Store the returned placement decisions in `test_cases` list (each TC dict includ
 If any TCs are placed `downstream` or `both`, locate downstream repository:
 1. Find the downstream repo:
    ```bash
-   downstream_repo_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py find-target "opendatahub-io/opendatahub-tests")
+   downstream_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-target "opendatahub-io/opendatahub-tests")
    ```
 2. If NOT found (exit code 1): Ask user to clone it:
    ```bash
-   downstream_repo_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py clone "<downstream_url>" "~/Code/opendatahub-tests")
+   downstream_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py clone "<downstream_url>" "~/Code/opendatahub-tests")
    ```
 3. Set `downstream_repo_path`
 
@@ -714,7 +665,7 @@ For each entry in `file_mapping`:
      ```python
      for tc in already_implemented:
          # Update TC frontmatter to reflect current state
-         result=$(uv run python $TESTPLAN_SCRIPTS/frontmatter.py set <feature_dir>/test_cases/<tc['id']>.md \
+         result=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_dir>/test_cases/<tc['id']>.md \
              automation_status="Complete" \
              automation_file="<tc['existing_file']>" \
              automation_function="<tc['existing_function']>" 2>&1)
@@ -973,7 +924,7 @@ For each TC in `test_cases`:
 1. Find the test file and function for this TC from `file_mapping`
 2. Update TC frontmatter using frontmatter script:
    ```bash
-   uv run python $TESTPLAN_SCRIPTS/frontmatter.py set <feature_dir>/test_cases/<tc_id>.md \
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_dir>/test_cases/<tc_id>.md \
        automation_status="Complete" \
        automation_file="<relative_path_to_test_file>" \
        automation_function="<test_function_name>"

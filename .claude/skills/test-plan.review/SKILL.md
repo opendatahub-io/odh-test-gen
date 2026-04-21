@@ -33,58 +33,12 @@ If no arguments provided and `test-plan.create` just generated a test plan in th
 
 ## Process
 
-### Step 0: Verify test-plan scripts are available
-
-Check for required scripts directory:
-
-```bash
-# Try to locate test-plan scripts in order of preference
-TESTPLAN_SCRIPTS=""
-
-# 1. Current directory (if user is in test-plan repo)
-if [ -f "./scripts/frontmatter.py" ]; then
-    TESTPLAN_SCRIPTS="$(pwd)/scripts"
-# 2. Dedicated install location (for registry users)
-elif [ -d "$HOME/.claude/test-plan-scripts/scripts" ]; then
-    TESTPLAN_SCRIPTS="$HOME/.claude/test-plan-scripts/scripts"
-# 3. Common dev location
-elif [ -d "$HOME/Code/test-plan/scripts" ]; then
-    TESTPLAN_SCRIPTS="$HOME/Code/test-plan/scripts"
-fi
-
-# Verify scripts exist
-if [ -z "$TESTPLAN_SCRIPTS" ] || [ ! -f "$TESTPLAN_SCRIPTS/frontmatter.py" ]; then
-    cat <<'SETUP_MSG'
-❌ Test-plan scripts not found
-
-This skill requires Python utility scripts. Please set up:
-
-Option 1 (Recommended - for registry users):
-  git clone https://github.com/fege/test-plan ~/.claude/test-plan-scripts
-  cd ~/.claude/test-plan-scripts
-  uv pip install -e ".[dev]"
-
-Option 2 (For contributors):
-  git clone https://github.com/fege/test-plan ~/Code/test-plan
-  cd ~/Code/test-plan
-  uv pip install -e ".[dev]"
-
-Then re-run this skill.
-SETUP_MSG
-    exit 1
-fi
-
-echo "✓ Using scripts from: $(dirname $TESTPLAN_SCRIPTS)"
-```
-
-Store: `TESTPLAN_SCRIPTS` (absolute path to scripts directory)
-
-### Step 1: Read Test Plan and Source Strategy
+### Step 0: Read Test Plan and Source Strategy
 
 1. Read `<feature_dir>/TestPlan.md`
 2. Read frontmatter to extract `source_key`:
    ```bash
-   uv run python $TESTPLAN_SCRIPTS/frontmatter.py read <feature_dir>/TestPlan.md
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlan.md
    ```
 3. Fetch the source strategy from Jira using the `source_key`:
    ```
@@ -103,7 +57,6 @@ Launch a **forked** score agent with these substitutions:
 - `{TEST_PLAN_PATH}` = `<feature_dir>/TestPlan.md`
 - `{STRATEGY_TEXT}` = raw strategy description text from Step 1
 - `{CALIBRATION_DIR}` = `${CLAUDE_SKILL_DIR}/calibration/`
-- `{TESTPLAN_SCRIPTS}` = value of `$TESTPLAN_SCRIPTS` from Step 0
 
 The score agent evaluates the test plan against a 5-criterion rubric (specificity, grounding, scope fidelity, actionability, consistency) and returns a structured assessment with per-criterion scores and a grounding cross-reference table.
 
@@ -136,8 +89,6 @@ Launch a **forked** review agent with these substitutions:
 - `{FEATURE_DIR}` = feature directory path
 - `{ASSESSMENT_TEXT}` = full output from the score agent (Step 2)
 - `{FIRST_PASS}` = `true` (first assessment cycle)
-- `{TESTPLAN_SCRIPTS}` = value of `$TESTPLAN_SCRIPTS` from Step 0
-- `{TESTPLAN_SCRIPTS}` = value of `$TESTPLAN_SCRIPTS` from Step 0
 
 The review agent writes `<feature_dir>/TestPlanReview.md` with rubric scores, feedback, and validated frontmatter.
 
@@ -154,7 +105,7 @@ The review agent writes `<feature_dir>/TestPlanReview.md` with rubric scores, fe
 After the review agent completes, read the review frontmatter:
 
 ```bash
-uv run python $TESTPLAN_SCRIPTS/frontmatter.py read <feature_dir>/TestPlanReview.md
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
 ```
 
 If all five criteria in `scores.*` are `2`, proceed to Step 5 (done).
@@ -168,7 +119,7 @@ Initialize cycle counter: `reassess_cycle=0`
 **4a. Filter for revision:**
 
 ```bash
-uv run python $TESTPLAN_SCRIPTS/filter_for_revision.py <feature_dir>
+uv run python ${CLAUDE_SKILL_DIR}/scripts/filter_for_revision.py <feature_dir>
 ```
 
 If output is `SKIP`, stop the loop and proceed to Step 5.
@@ -180,14 +131,13 @@ Read the revise agent prompt from `${CLAUDE_SKILL_DIR}/prompts/revise-agent.md`.
 Launch with substitutions:
 - `{FEATURE_DIR}` = feature directory path
 - `{STRATEGY_TEXT}` = raw strategy text from Step 1
-- `{TESTPLAN_SCRIPTS}` = value of `$TESTPLAN_SCRIPTS` from Step 0
 
 The revise agent edits TestPlan.md (only sections mapped to failing criteria) and sets `auto_revised=true`.
 
 **4c. Check if reassessment is needed:**
 
 ```bash
-uv run python $TESTPLAN_SCRIPTS/frontmatter.py read <feature_dir>/TestPlanReview.md
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
 ```
 
 If `auto_revised` is `false`, the revise agent found nothing to change — stop the loop.
@@ -197,7 +147,7 @@ Increment `reassess_cycle`. If `reassess_cycle >= 2`, stop — max cycles reache
 **4d. Save cumulative state:**
 
 ```bash
-uv run python $TESTPLAN_SCRIPTS/preserve_review_state.py save <feature_dir>
+uv run python ${CLAUDE_SKILL_DIR}/scripts/preserve_review_state.py save <feature_dir>
 ```
 
 **4e. Re-score:**
@@ -216,7 +166,7 @@ Repeat Step 3 (review agent) with `{FIRST_PASS}=false`.
 **4g. Restore before_scores and revision history:**
 
 ```bash
-uv run python $TESTPLAN_SCRIPTS/preserve_review_state.py restore <feature_dir>
+uv run python ${CLAUDE_SKILL_DIR}/scripts/preserve_review_state.py restore <feature_dir>
 ```
 
 **4h. Check criteria again:**

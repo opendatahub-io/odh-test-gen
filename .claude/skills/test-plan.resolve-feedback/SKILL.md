@@ -38,51 +38,6 @@ If no PR URL is provided, ask the user for it via AskUserQuestion.
 
 ### Step 0: Pre-flight Checks
 
-#### 0.0 Verify test-plan scripts are available
-
-Check for required scripts directory:
-
-```bash
-# Try to locate test-plan scripts in order of preference
-TESTPLAN_SCRIPTS=""
-
-# 1. Current directory (if user is in test-plan repo)
-if [ -f "./scripts/frontmatter.py" ]; then
-    TESTPLAN_SCRIPTS="$(pwd)/scripts"
-# 2. Dedicated install location (for registry users)
-elif [ -d "$HOME/.claude/test-plan-scripts/scripts" ]; then
-    TESTPLAN_SCRIPTS="$HOME/.claude/test-plan-scripts/scripts"
-# 3. Common dev location
-elif [ -d "$HOME/Code/test-plan/scripts" ]; then
-    TESTPLAN_SCRIPTS="$HOME/Code/test-plan/scripts"
-fi
-
-# Verify scripts exist
-if [ -z "$TESTPLAN_SCRIPTS" ] || [ ! -f "$TESTPLAN_SCRIPTS/frontmatter.py" ]; then
-    cat <<'SETUP_MSG'
-❌ Test-plan scripts not found
-
-This skill requires Python utility scripts. Please set up:
-
-Option 1 (Recommended - for registry users):
-  git clone https://github.com/fege/test-plan ~/.claude/test-plan-scripts
-  cd ~/.claude/test-plan-scripts
-  uv pip install -e ".[dev]"
-
-Option 2 (For contributors):
-  git clone https://github.com/fege/test-plan ~/Code/test-plan
-  cd ~/Code/test-plan
-  uv pip install -e ".[dev]"
-
-Then re-run this skill.
-SETUP_MSG
-    exit 1
-fi
-
-echo "✓ Using scripts from: $(dirname $TESTPLAN_SCRIPTS)"
-```
-
-Store: `TESTPLAN_SCRIPTS` (absolute path to scripts directory)
 
 #### 0.1 GitHub CLI
 Run `gh auth status` via Bash. If it fails, inform the user that `gh` CLI must be installed and authenticated. Do NOT proceed until this succeeds.
@@ -100,7 +55,7 @@ Parse repo name from `<owner>/<repo>`.
 
 **Check if repo exists locally**:
 ```bash
-repo_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py find "<repo_name>")
+repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find "<repo_name>")
 ```
 
 If found (exit code 0, prints path):
@@ -124,7 +79,7 @@ fi
 If NOT found (exit code 1, empty output):
 - Clone the repo:
   ```bash
-  repo_path=$(uv run python $TESTPLAN_SCRIPTS/repo.py clone "<repo_url>" "~/Code/<repo_name>")
+  repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py clone "<repo_url>" "~/Code/<repo_name>")
   ```
 - Checkout PR branch:
   ```bash
@@ -142,7 +97,7 @@ find . -name "TestPlan.md" -not -path "./.claude/*"
 If multiple feature directories are found, ask the user which one to use via AskUserQuestion.
 
 #### 0.6 Validate frontmatter
-Run `uv run python $TESTPLAN_SCRIPTS/frontmatter.py validate <feature_dir>/TestPlan.md` via Bash. If validation fails, show the errors — these will need to be fixed as part of the feedback resolution.
+Run `uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py validate <feature_dir>/TestPlan.md` via Bash. If validation fails, show the errors — these will need to be fixed as part of the feedback resolution.
 
 ### Step 1: Collect Review Comments
 
@@ -209,7 +164,7 @@ Keep a running tally of applied vs skipped items.
 For each accepted feedback item, apply the change:
 
 - Use the Edit tool to modify `TestPlan.md`, `TestPlanGaps.md`, or `test_cases/TC-*.md`
-- For frontmatter changes, use `uv run python $TESTPLAN_SCRIPTS/frontmatter.py set` to ensure validation
+- For frontmatter changes, use `uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set` to ensure validation
 - If a change affects test cases:
   - Update existing `TC-*.md` files as needed
   - Update `test_cases/INDEX.md` if test cases were added, removed, or re-prioritized
@@ -221,14 +176,14 @@ After all changes are applied:
 
 1. Bump the `version` patch number (e.g., `1.0.0` → `1.0.1`):
    ```bash
-   uv run python $TESTPLAN_SCRIPTS/frontmatter.py set <feature_dir>/TestPlan.md version="<new_version>"
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_dir>/TestPlan.md version="<new_version>"
    ```
 
 2. Keep `status` as `In Review`
 
 3. If gaps were resolved by the feedback, update `TestPlanGaps.md`:
    ```bash
-   uv run python $TESTPLAN_SCRIPTS/frontmatter.py set <feature_dir>/TestPlanGaps.md gap_count=<new_count>
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_dir>/TestPlanGaps.md gap_count=<new_count>
    ```
    If all gaps resolved, set `status=Resolved`.
 
@@ -236,13 +191,13 @@ After all changes are applied:
 
 Run validation on all modified artifacts:
 ```bash
-uv run python $TESTPLAN_SCRIPTS/frontmatter.py validate <feature_dir>/TestPlan.md
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py validate <feature_dir>/TestPlan.md
 ```
 
 If test cases were modified:
 ```bash
 for f in <feature_dir>/test_cases/TC-*.md; do
-    uv run python $TESTPLAN_SCRIPTS/frontmatter.py validate "$f"
+    uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py validate "$f"
 done
 ```
 
