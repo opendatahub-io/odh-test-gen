@@ -33,18 +33,18 @@ If no arguments provided and `test-plan.create` just generated a test plan in th
 
 ## Process
 
-### Step 1: Read Test Plan and Source Strategy
+### Step 0: Read Test Plan and Source Strategy
 
 1. Read `<feature_dir>/TestPlan.md`
-2. Read frontmatter to extract `strat_key`:
+2. Read frontmatter to extract `source_key`:
    ```bash
-   uv run python scripts/frontmatter.py read <feature_dir>/TestPlan.md
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlan.md
    ```
-3. Fetch the source strategy from Jira using the `strat_key`:
+3. Fetch the source strategy from Jira using the `source_key`:
    ```
-   mcp__atlassian__getJiraIssue with issueIdOrKey=<strat_key>
+   mcp__atlassian__getJiraIssue with issueIdOrKey=<source_key>
    ```
-   If MCP is unavailable, check for a local strategy file in `artifacts/strat-tasks/<strat_key>.md` (rfe-creator convention). If neither is available, warn the user that grounding and scope fidelity scoring will be degraded, and proceed with the test plan content only.
+   If MCP is unavailable, check for a local strategy file in `artifacts/strat-tasks/<source_key>.md` (rfe-creator convention). If neither is available, warn the user that grounding and scope fidelity scoring will be degraded, and proceed with the test plan content only.
 
 4. Store the raw strategy text for passing to sub-agents.
 
@@ -105,7 +105,7 @@ The review agent writes `<feature_dir>/TestPlanReview.md` with rubric scores, fe
 After the review agent completes, read the review frontmatter:
 
 ```bash
-uv run python scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
 ```
 
 If all five criteria in `scores.*` are `2`, proceed to Step 5 (done).
@@ -119,7 +119,7 @@ Initialize cycle counter: `reassess_cycle=0`
 **4a. Filter for revision:**
 
 ```bash
-uv run python scripts/filter_for_revision.py <feature_dir>
+uv run python ${CLAUDE_SKILL_DIR}/scripts/filter_for_revision.py <feature_dir>
 ```
 
 If output is `SKIP`, stop the loop and proceed to Step 5.
@@ -137,7 +137,7 @@ The revise agent edits TestPlan.md (only sections mapped to failing criteria) an
 **4c. Check if reassessment is needed:**
 
 ```bash
-uv run python scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlanReview.md
 ```
 
 If `auto_revised` is `false`, the revise agent found nothing to change — stop the loop.
@@ -147,7 +147,7 @@ Increment `reassess_cycle`. If `reassess_cycle >= 2`, stop — max cycles reache
 **4d. Save cumulative state:**
 
 ```bash
-uv run python scripts/preserve_review_state.py save <feature_dir>
+uv run python ${CLAUDE_SKILL_DIR}/scripts/preserve_review_state.py save <feature_dir>
 ```
 
 **4e. Re-score:**
@@ -166,7 +166,7 @@ Repeat Step 3 (review agent) with `{FIRST_PASS}=false`.
 **4g. Restore before_scores and revision history:**
 
 ```bash
-uv run python scripts/preserve_review_state.py restore <feature_dir>
+uv run python ${CLAUDE_SKILL_DIR}/scripts/preserve_review_state.py restore <feature_dir>
 ```
 
 **4h. Check criteria again:**

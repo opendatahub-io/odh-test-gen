@@ -27,6 +27,48 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 | `test-plan.create.test-function` | Generate test function code from TC specification matching repo conventions |
 | `test-plan.score.test-function` | Score generated test function code using 5-criteria quality rubric |
 
+## Installation
+
+### Option 1: Install from Marketplace (Recommended)
+
+Install from the [opendatahub-io/skills-registry](https://github.com/opendatahub-io/skills-registry) marketplace:
+
+```bash
+# Add the marketplace (one-time)
+claude plugin marketplace add opendatahub-io/skills-registry
+
+# Install test-plan plugin
+/plugin install test-plan@opendatahub-skills
+```
+
+This clones the repository and makes skills immediately available. Then install Python dependencies:
+
+```bash
+cd ~/.claude/plugins/cache/opendatahub-skills/test-plan/<version>
+uv pip install -e ".[dev]"
+```
+
+Use skills:
+```bash
+/test-plan.create RHAISTRAT-400
+/test-plan.create-cases
+/test-plan.publish
+```
+
+### Option 2: Manual Clone (For Contributors)
+
+Clone the repository directly:
+
+```bash
+git clone https://github.com/fege/test-plan ~/Code/test-plan
+cd ~/Code/test-plan
+uv pip install -e ".[dev]"
+```
+
+Skills are available from `.claude/skills/` directory.
+
+**Note**: Skills use symlinks for shared utilities (`test-plan-common/scripts → ../../../scripts`). Both installation methods clone the full repository, so symlinks resolve correctly.
+
 ## Usage
 
 ```bash
@@ -112,10 +154,16 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 
 ## Prerequisites
 
-- Claude Code installed
-- Atlassian MCP server configured (for Jira strategy fetching)
+### Required for All Users
+- [Claude Code](https://claude.ai/code) installed
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
 - Git installed
-- GitHub CLI (`gh`) installed and authenticated (for publishing and feedback resolution)
+- Python 3.10 or higher
+
+### Required for Specific Features
+- **Jira integration**: [Atlassian MCP server](https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/) configured (for `/test-plan.create`)
+- **GitHub publishing**: [GitHub CLI (`gh`)](https://cli.github.com/) installed and authenticated (for `/test-plan.publish` and `/test-plan.resolve-feedback`)
+- **Test implementation**: Local or cloned target repositories (for `/test-plan.case-implement`)
 
 ## Repository Structure
 
@@ -156,6 +204,14 @@ This installs:
 - `pyyaml` - YAML frontmatter parsing
 - `pytest` - Test framework
 - `pytest-cov` - Coverage reporting
+
+### Known Issues for Contributors
+
+**Branch-switching in same repository**: When testing skills like `/test-plan.case-implement` or `/test-plan.resolve-feedback` with test cases from a PR in the same repository (e.g., `test-plan/RHAISTRAT-123`), the skill will `git checkout` to the PR branch, which loses the skill scripts on your current development branch.
+
+**Workaround**: Test with PRs from a different repository, or manually copy test case artifacts to a local directory and pass the local path instead of the PR URL.
+
+**Tracking**: See issue [#17](https://github.com/fege/test-plan/issues/17) for the proposed git worktree fix.
 
 ### Running Tests
 

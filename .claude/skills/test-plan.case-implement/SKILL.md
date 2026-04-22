@@ -52,16 +52,20 @@ If no feature source can be determined, ask the user for:
 
 ### Step 0: Pre-flight Checks
 
+
 #### 0.1 Fetch feature artifacts
 
 If feature source is a GitHub branch:
 1. Parse branch name from URL or short form (e.g., `test-plan/RHAISTRAT-400`)
 2. Parse owner/repo from URL (e.g., `fege/test-plan`)
-3. **Check if repo exists locally** using `scripts/utils/repo_utils.py::find_repo_in_common_locations(repo_name)`:
-   - If found (returns path):
+3. **Check if repo exists locally**:
+   ```bash
+   repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find "<repo_name>")
+   ```
+   - If found (exit code 0, prints path):
      - Check if already on branch, update to latest:
        ```bash
-       cd <local_repo_path>
+       cd "$repo_path"
        current_branch=$(git branch --show-current)
 
        if [ "$current_branch" = "<branch_name>" ]; then
@@ -74,17 +78,20 @@ If feature source is a GitHub branch:
            git pull origin <branch_name>
        fi
        ```
-     - Set `feature_dir` to `<local_repo_path>/<feature_name>`
-     - Log: "✓ Using local clone: <local_repo_path> (updated)"
-   - If NOT found (returns None):
-     - Clone using `scripts/utils/repo_utils.py::clone_repo(repo_url, "~/Code/<repo_name>")`
+     - Set `feature_dir` to `$repo_path/<feature_name>`
+     - Log: "✓ Using local clone: $repo_path (updated)"
+   - If NOT found (exit code 1, empty output):
+     - Clone the repo:
+       ```bash
+       clone_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py clone "<repo_url>" "~/Code/<repo_name>")
+       ```
      - Checkout branch:
        ```bash
-       cd ~/Code/<repo_name>
+       cd "$clone_path"
        git checkout <branch_name>
        ```
-     - Set `feature_dir` to `~/Code/<repo_name>/<feature_name>`
-     - Log: "✓ Cloned to ~/Code/<repo_name>"
+     - Set `feature_dir` to `$clone_path/<feature_name>`
+     - Log: "✓ Cloned to $clone_path"
 
 If feature source is a local path:
 1. Verify path exists and is a directory
@@ -96,21 +103,32 @@ If feature source is a local path:
 2. Check `<feature_dir>/test_cases/` directory exists
 3. Check `<feature_dir>/test_cases/INDEX.md` exists
 4. Check at least one `TC-*.md` file exists in `test_cases/`
-5. Read `TestPlan.md` frontmatter using `scripts/utils/frontmatter_utils.py::read_frontmatter()` to extract: `strat_key`, `feature`, `version`
+5. Read `TestPlan.md` frontmatter to extract: `source_key`, `feature`, `version`, `components`:
+   ```bash
+   frontmatter_json=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlan.md)
+   components_from_fm=$(echo "$frontmatter_json" | jq -r '.components // [] | join(",")')
+   ```
+   - Store `components_from_fm` (comma-separated list, e.g., `"AI Hub,Model Serving"`)
+   - If empty or `[]`, set to empty string
 
 If any check fails, inform the user and stop.
 
 #### 0.3 Locate odh-test-context repository
 
-Use `scripts/utils/repo_utils.py::find_known_repo('odh-test-context')` to locate odh-test-context:
+Find odh-test-context repository:
+```bash
+odh_result=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-known odh-test-context)
+odh_path=$(echo "$odh_result" | jq -r '.path')
+odh_url=$(echo "$odh_result" | jq -r '.url')
+```
 
-The script checks common locations:
+This checks common locations:
 - `~/Code/odh-test-context`
 - `~/odh-test-context`
 - `~/workspace/odh-test-context`
 - `../odh-test-context` (relative to current repo)
 
-If NOT found, the script prompts user via AskUserQuestion:
+If NOT found (exit code 1, `odh_path` is "null"), prompt user via AskUserQuestion:
 > odh-test-context repository not found. This repository provides validated test conventions and placement guidance for ~162 opendatahub-io repos.
 >
 > Options:
@@ -125,22 +143,34 @@ Returns:
 
 #### 0.4 Identify code repository
 
-Use `scripts/utils/repo_discovery.py::extract_repo_indicators(testplan_path, tc_files)` to extract indicators:
-1. Read endpoints from `TestPlan.md` Section 4
-2. Extract components from `TestPlan.md` Section 1.2 (Scope)  
-3. Sample 3 TC-*.md files and extract component mentions from preconditions
+Gather component indicators from multiple sources (merge all):
 
-Uses hardcoded component keywords for common opendatahub-io repos (dashboard, notebooks, model-registry, pipelines, kserve, modelmesh, distributed-workloads, trustyai, etc.)
+**Source 1: Frontmatter components** (from Jira ticket, highest authority):
+- Use `components_from_fm` extracted in Step 0.2
+- Split comma-separated list into array: `["AI Hub", "Model Serving"]`
 
-Returns: `{'components': [...], 'endpoints': [...]}`
+**Source 2: Content extraction**:
+- Use `scripts/utils/repo_discovery.py::extract_repo_indicators(testplan_path, tc_files)` to extract:
+  1. Read endpoints from `TestPlan.md` Section 4
+  2. Extract components from `TestPlan.md` Section 1.2 (Scope) 
+  3. Sample 3 TC-*.md files and extract component mentions from preconditions
+- Uses hardcoded component keywords for common opendatahub-io repos (dashboard, notebooks, model-registry, pipelines, kserve, modelmesh, distributed-workloads, trustyai, etc.)
+
+**Merge**:
+- Combine frontmatter components + content-discovered components
+- Remove duplicates
+- Frontmatter components have **higher weight** in repo mapping (Step 0.5)
+
+Returns: `{'components': [...], 'endpoints': [...], 'frontmatter_components': [...]}`
 
 #### 0.5 Map components to repositories and confirm with user
 
-Use `scripts/utils/component_map.py::COMPONENT_REPO_MAP` to map detected components to repos:
+Use `scripts/utils/component_map.py::get_repo_for_component(component)` to map detected components to repos:
 
-1. For each component from Step 0.4, look it up in `COMPONENT_REPO_MAP`
-2. Collect matched repos: `{component: repo}`
+1. For each component from Step 0.4, look it up using `get_repo_for_component(component)` (handles case-insensitive matching)
+2. Collect matched repos: `{component: repo, source: 'frontmatter'|'content'}`
 3. Get unique repos from matched values
+4. **Prioritize repos matched by frontmatter components** when presenting options
 
 **Always ask user for confirmation:**
 
@@ -148,7 +178,7 @@ If **exactly 1 unique repo** matched:
 1. Present via AskUserQuestion:
    > ✓ Auto-detected code repository: **{repo}**
    > 
-   > Based on components: {component_list}
+   > Based on components: {component_list} {show (from Jira) for frontmatter components}
    > 
    > Proceed with this repository? [yes/specify-different]
 
@@ -156,10 +186,11 @@ If **exactly 1 unique repo** matched:
 3. If **specify-different**: Ask for repo name (e.g., `opendatahub-io/notebooks`)
 
 If **multiple unique repos** matched:
-1. Present via AskUserQuestion:
+1. **Sort by priority**: repos matched by frontmatter components first
+2. Present via AskUserQuestion:
    > Multiple repositories detected from components:
-   > 1. **{repo1}** (from: {components})
-   > 2. **{repo2}** (from: {components})
+   > 1. **{repo1}** (from Jira: {fm_components}, from content: {content_components})
+   > 2. **{repo2}** (from content: {components})
    > 
    > Which is the primary target? [1/2/specify-different]
 
@@ -178,19 +209,26 @@ Store: `code_repo` (e.g., `opendatahub-io/odh-dashboard`)
 
 #### 0.6 Locate code repository locally
 
-1. Use `scripts/utils/repo_utils.py::find_target_repo(code_repo)` to check common locations:
+1. Check common locations for the code repository:
+   ```bash
+   code_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-target "<code_repo>")
+   ```
+   This checks:
    - `~/Code/<repo_name>`
    - `~/Code/<org>-<repo_name>`
    - `~/<repo_name>`
    - `~/workspace/<repo_name>`
 
-2. If found (returns path):
+2. If found (exit code 0, prints path):
    - Set `code_repo_path`
    - Proceed to Step 1
 
-3. If NOT found (returns None):
+3. If NOT found (exit code 1, empty output):
    - Ask user via AskUserQuestion: `Clone <code_repo>? [yes/no/specify-path]`
-   - If **yes**: Use `scripts/utils/repo_utils.py::clone_repo(repo_url, "~/Code/<repo_name>")`
+   - If **yes**: Clone it:
+     ```bash
+     code_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py clone "<repo_url>" "~/Code/<repo_name>")
+     ```
    - If **specify-path**: Ask for manual path, validate it exists
    - If **no**: Stop (cannot proceed without code repo)
 
@@ -358,9 +396,14 @@ If found:
 
 If no pattern guides exist in component repo:
 
-1. Use `scripts/utils/repo_utils.py::find_known_repo('tiger-team')` to locate Tiger Team
+1. Locate Tiger Team repository:
+   ```bash
+   tiger_result=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-known tiger-team)
+   tiger_path=$(echo "$tiger_result" | jq -r '.path')
+   tiger_url=$(echo "$tiger_result" | jq -r '.url')
+   ```
 
-2. **If Tiger Team found locally** (returns path):
+2. **If Tiger Team found locally** (exit code 0, `tiger_path` is not "null"):
    - **Auto-generate** pattern guides (no user prompt):
      ```bash
      /test-rules-generator <code_repo_path>
@@ -479,8 +522,14 @@ The subagent analyzes each TC and returns placement recommendations with:
 Store the returned placement decisions in `test_cases` list (each TC dict includes `placement_location`, `level`, `scores`, `reasons`).
 
 If any TCs are placed `downstream` or `both`, locate downstream repository:
-1. Use `scripts/utils/repo_utils.py::find_target_repo("opendatahub-io/opendatahub-tests")`
-2. If NOT found: Ask user to clone using `clone_repo(url, target_path)`
+1. Find the downstream repo:
+   ```bash
+   downstream_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py find-target "opendatahub-io/opendatahub-tests")
+   ```
+2. If NOT found (exit code 1): Ask user to clone it:
+   ```bash
+   downstream_repo_path=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py clone "<downstream_url>" "~/Code/opendatahub-tests")
+   ```
 3. Set `downstream_repo_path`
 
 ### Step 3: Select Test Cases to Implement
@@ -632,7 +681,7 @@ For each entry in `file_mapping`:
      ```python
      for tc in already_implemented:
          # Update TC frontmatter to reflect current state
-         result=$(uv run python scripts/frontmatter.py set <feature_dir>/test_cases/<tc['id']>.md \
+         result=$(uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_dir>/test_cases/<tc['id']>.md \
              automation_status="Complete" \
              automation_file="<tc['existing_file']>" \
              automation_function="<tc['existing_function']>" 2>&1)
@@ -683,7 +732,7 @@ For pytest:
 """
 Test cases for <feature_name>
 
-Strategy: <strat_key>
+Strategy: <source_key>
 Test Plan: <link to TestPlan.md or PR>
 """
 
@@ -891,7 +940,7 @@ For each TC in `test_cases`:
 1. Find the test file and function for this TC from `file_mapping`
 2. Update TC frontmatter using frontmatter script:
    ```bash
-   uv run python scripts/frontmatter.py set <feature_dir>/test_cases/<tc_id>.md \
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_dir>/test_cases/<tc_id>.md \
        automation_status="Complete" \
        automation_file="<relative_path_to_test_file>" \
        automation_function="<test_function_name>"
@@ -913,7 +962,7 @@ If feature source is a GitHub branch:
 1. Commit updated TC files back to the branch:
    ```bash
    git add <feature_dir>/test_cases/
-   git commit -m "test-plan(<strat_key>): mark TCs as implemented"
+   git commit -m "test-plan(<source_key>): mark TCs as implemented"
    git push origin <branch_name>
    ```
 
@@ -927,7 +976,7 @@ Test Implementation Summary
 ==========================================
 
 Feature: <feature_name>
-Strategy: <strat_key>
+Strategy: <source_key>
 Test Cases Implemented: <count>
 Target Repository: <code_repo_path>
 Downstream Repository: <downstream_repo_path> (if applicable)
@@ -957,7 +1006,7 @@ Test Quality
 Suggested Fixtures (if any common setup found)
 ----------------------------------------------------------
 {for each common requirement from Step 6}
-- '<requirement>' used by <count> TCs (<tc_ids>)
+- '<requirement>' used by <count> TCs (<used_by_tcs>)
   → Consider extracting to fixture/setup function
 
 Next Steps
@@ -970,7 +1019,7 @@ Next Steps
    cd <target_repo_path>
    git checkout -b test/<feature_name>
    git add <test_files>
-   git commit -m "Add automated tests for <feature_name> (<strat_key>)"
+   git commit -m "Add automated tests for <feature_name> (<source_key>)"
    git push origin test/<feature_name>
    gh pr create --title "Automated tests for <feature_name>" --body "Implements test cases from <test_plan_pr_url>"
 

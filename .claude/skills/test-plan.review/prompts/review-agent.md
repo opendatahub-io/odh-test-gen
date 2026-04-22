@@ -13,7 +13,7 @@ The rubric assessment is provided inline above. Parse the score table to extract
 ## Step 2: Read Schema
 
 ```bash
-uv run python scripts/frontmatter.py schema test-plan-review
+uv run python {CLAUDE_SKILL_DIR}/scripts/frontmatter.py schema test-plan-review
 ```
 
 ## Step 3: Write Review File
@@ -63,10 +63,10 @@ Parse the total score and per-criterion scores from the assessment:
 
 ## Step 5: Set Frontmatter
 
-Read the test plan frontmatter to get the `feature` and `strat_key` values:
+Read the test plan frontmatter to get the `feature` and `source_key` values:
 
 ```bash
-uv run python scripts/frontmatter.py read {FEATURE_DIR}/TestPlan.md
+uv run python {CLAUDE_SKILL_DIR}/scripts/frontmatter.py read {FEATURE_DIR}/TestPlan.md
 ```
 
 Then set review frontmatter. Determine `pass` as rubric pass:
@@ -74,8 +74,8 @@ Then set review frontmatter. Determine `pass` as rubric pass:
 - `false` otherwise
 
 ```bash
-uv run python scripts/frontmatter.py set {FEATURE_DIR}/TestPlanReview.md \
-    feature=<feature> strat_key=<strat_key> \
+uv run python {CLAUDE_SKILL_DIR}/scripts/frontmatter.py set {FEATURE_DIR}/TestPlanReview.md \
+    feature=<feature> source_key=<source_key> \
     score=<total> pass=<true/false> verdict=<Ready/Revise/Rework> \
     scores.specificity=<n> scores.grounding=<n> scores.scope_fidelity=<n> \
     scores.actionability=<n> scores.consistency=<n>
@@ -84,7 +84,7 @@ uv run python scripts/frontmatter.py set {FEATURE_DIR}/TestPlanReview.md \
 If first pass ({FIRST_PASS}=true), also set before_score and before_scores with the same values:
 
 ```bash
-uv run python scripts/frontmatter.py set {FEATURE_DIR}/TestPlanReview.md \
+uv run python {CLAUDE_SKILL_DIR}/scripts/frontmatter.py set {FEATURE_DIR}/TestPlanReview.md \
     before_score=<total> \
     before_scores.specificity=<n> before_scores.grounding=<n> \
     before_scores.scope_fidelity=<n> before_scores.actionability=<n> \

@@ -44,6 +44,7 @@ If no feature directory can be determined, ask the user for:
 
 ### Step 0: Pre-flight Checks
 
+
 #### 0.1 GitHub CLI
 Run `gh auth status` via Bash. If it fails, inform the user that `gh` CLI must be installed and authenticated. Do NOT proceed until this succeeds.
 
@@ -55,17 +56,17 @@ Check that the feature directory contains at least:
 If `TestPlanGaps.md` or `test_cases/` exist, they will be included. Do NOT fail if they are absent — the user may publish before generating test cases.
 
 #### 0.3 Validate frontmatter
-Run `uv run python scripts/frontmatter.py validate <feature_dir>/TestPlan.md` via Bash. If validation fails, show the errors and do NOT proceed. The user must fix frontmatter issues before publishing.
+Run `uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py validate <feature_dir>/TestPlan.md` via Bash. If validation fails, show the errors and do NOT proceed. The user must fix frontmatter issues before publishing.
 
 If `TestPlanGaps.md` exists, validate it too:
 ```bash
-uv run python scripts/frontmatter.py validate <feature_dir>/TestPlanGaps.md
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py validate <feature_dir>/TestPlanGaps.md
 ```
 
 If `test_cases/TC-*.md` files exist, validate them:
 ```bash
 for f in <feature_dir>/test_cases/TC-*.md; do
-    uv run python scripts/frontmatter.py validate "$f"
+    uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py validate "$f"
 done
 ```
 
@@ -76,10 +77,10 @@ Run `git status --porcelain <feature_dir>` to check if there are uncommitted cha
 
 1. Read frontmatter from `<feature_dir>/TestPlan.md` using Bash:
    ```bash
-   uv run python scripts/frontmatter.py read <feature_dir>/TestPlan.md
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py read <feature_dir>/TestPlan.md
    ```
-2. Extract: `strat_key`, `version`, `feature`, `reviewers`
-3. Determine the branch name: `test-plan/<strat_key>-v<version>`
+2. Extract: `source_key`, `version`, `feature`, `reviewers`
+3. Determine the branch name: `test-plan/<source_key>-v<version>`
    - Example: `test-plan/RHAISTRAT-400-v1.0.0`
 4. Determine reviewers: use `--reviewers` argument if provided, otherwise use frontmatter `reviewers` field
 
@@ -90,9 +91,9 @@ Before creating the branch and PR, present a summary to the user via AskUserQues
 > **Ready to publish test plan**
 >
 > - **Feature**: `<feature>`
-> - **Strategy**: `<strat_key>`
+> - **Strategy**: `<source_key>`
 > - **Version**: `<version>`
-> - **Branch**: `test-plan/<strat_key>-v<version>`
+> - **Branch**: `test-plan/<source_key>-v<version>`
 > - **Target repo**: `<owner/repo>` (or "current repository")
 > - **Reviewers**: `<reviewer list>` (or "none")
 > - **Files to publish**:
@@ -109,7 +110,7 @@ If the user declines, stop.
 
 1. Bump the `status` to `In Review`:
    ```bash
-   uv run python scripts/frontmatter.py set <feature_dir>/TestPlan.md status="In Review"
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_dir>/TestPlan.md status="In Review"
    ```
 
 ### Step 4: Create Branch and Commit
@@ -117,7 +118,7 @@ If the user declines, stop.
 1. Fetch latest changes and create branch from `main`:
    ```bash
    git fetch origin main
-   git checkout -b test-plan/<strat_key>-v<version> main
+   git checkout -b test-plan/<source_key>-v<version> main
    ```
    If the branch already exists, inform the user and ask whether to:
    - **Overwrite**: Delete and recreate the branch from `main` (loses existing commits)
@@ -127,28 +128,38 @@ If the user declines, stop.
    If the user chooses **overwrite**, delete and recreate the branch from `main`:
    ```bash
    git fetch origin main
-   git branch -D test-plan/<strat_key>-v<version>
-   git checkout -b test-plan/<strat_key>-v<version> main
+   git branch -D test-plan/<source_key>-v<version>
+   git checkout -b test-plan/<source_key>-v<version> main
    ```
 
    If the user chooses **add commit on top**, check out the existing branch and ensure it's up to date:
    ```bash
-   git checkout test-plan/<strat_key>-v<version>
-   git pull origin test-plan/<strat_key>-v<version>
+   git checkout test-plan/<source_key>-v<version>
+   git pull origin test-plan/<source_key>-v<version>
    ```
    Then proceed to step 2 (staging) and step 3 (commit) as normal. In step 4, use `git push` (not `--force`).
 
    **Rationale**: Creating the branch from `main` (rather than from the current HEAD) ensures that only the test plan artifacts are included in the PR, not any unrelated changes that may exist in the user's current working branch. The "add commit on top" option is useful for iterative updates without losing PR review history.
 
-2. Stage all artifacts in the feature directory:
+2. Stage only public artifacts in the feature directory:
    ```bash
-   git add <feature_dir>/
+   # Always stage these required files
+   git add <feature_dir>/TestPlan.md <feature_dir>/README.md
+
+   # Stage optional files if they exist
+   [ -f <feature_dir>/TestPlanGaps.md ] && git add <feature_dir>/TestPlanGaps.md
+   [ -f <feature_dir>/TestPlanReview.md ] && git add <feature_dir>/TestPlanReview.md
+
+   # Stage test_cases directory if it exists
+   [ -d <feature_dir>/test_cases ] && git add <feature_dir>/test_cases/
    ```
+
+   **Important**: This selectively stages only the public artifacts, excluding internal working files like `.review-state.json`, `repo_instructions.md`, `test_implementation_conventions.md`, and `test_scores/` which are meant for internal orchestration only.
 
 3. Commit with a descriptive message. Use a heredoc to avoid shell injection from frontmatter values:
    ```bash
    git commit -m "$(cat <<'EOF'
-   test-plan(<strat_key>): publish <feature> v<version>
+   test-plan(<source_key>): publish <feature> v<version>
    EOF
    )"
    ```
@@ -156,17 +167,17 @@ If the user declines, stop.
 4. Push the branch:
    - If the user chose **overwrite** in step 1, use `--force`:
      ```bash
-     git push --force origin test-plan/<strat_key>-v<version>
+     git push --force origin test-plan/<source_key>-v<version>
      ```
    - If the user chose **add commit on top** or this is a new branch, use regular push:
      ```bash
-     git push origin test-plan/<strat_key>-v<version>
+     git push origin test-plan/<source_key>-v<version>
      ```
 
    If publishing to a different repo (`--repo`), push to that remote instead. Set up the remote if needed:
    ```bash
    git remote add publish-target https://github.com/<owner>/<repo>.git
-   git push [--force if overwrite] publish-target test-plan/<strat_key>-v<version>
+   git push [--force if overwrite] publish-target test-plan/<source_key>-v<version>
    git remote remove publish-target
    ```
 
@@ -178,7 +189,7 @@ If the user declines, stop.
    ```markdown
    ## Test Plan: <feature>
 
-   **Strategy**: [<strat_key>](https://redhat.atlassian.net/browse/<strat_key>)
+   **Strategy**: [<source_key>](https://redhat.atlassian.net/browse/<source_key>)
    **Version**: <version>
 
    ### Summary
@@ -205,7 +216,7 @@ If the user declines, stop.
    EOF
    )" \
        --base main \
-       --head test-plan/<strat_key>-v<version>
+       --head test-plan/<source_key>-v<version>
    ```
    If publishing to a different repo, add `--repo <owner/repo>`.
    If reviewers were determined in Step 1, add `--reviewer <user1>,<user2>`.
@@ -217,7 +228,7 @@ If the user declines, stop.
    > **Published successfully**
    >
    > - **PR**: <PR_URL>
-   > - **Branch**: `test-plan/<strat_key>-v<version>`
+   > - **Branch**: `test-plan/<source_key>-v<version>`
    > - **Status**: frontmatter updated to `In Review`
    > - **Reviewers**: <list or "none assigned">
    >

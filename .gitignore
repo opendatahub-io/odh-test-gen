@@ -36,3 +36,10 @@ kubeconfig
 .vscode/
 *.swp
 *.swo
+
+# Test Plan Internal Files (skills orchestration)
+# These are work-in-progress artifacts and should NOT be published
+*/.review-state.json
+*/repo_instructions.md
+*/test_implementation_conventions.md
+*/test_scores/
