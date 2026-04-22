@@ -29,48 +29,45 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 
 ## Installation
 
-### Option 1: Install from Skills Registry (Recommended for Users)
+### Option 1: Install from Marketplace (Recommended)
 
-Install skills from the [opendatahub-io/skills-registry](https://github.com/opendatahub-io/skills-registry):
+Install from the [opendatahub-io/skills-registry](https://github.com/opendatahub-io/skills-registry) marketplace:
 
 ```bash
-# Skills are automatically available in Claude Code
-# Just run /test-plan.create to get started
+# Add the marketplace (one-time)
+claude plugin marketplace add opendatahub-io/skills-registry
+
+# Install test-plan plugin
+/plugin install test-plan@opendatahub-skills
 ```
 
-**One-time setup required** (installs Python utilities):
+This clones the repository and makes skills immediately available. Then install Python dependencies:
 
 ```bash
-# Clone the test-plan repository to get required scripts
-git clone https://github.com/fege/test-plan ~/.claude/test-plan-scripts
-cd ~/.claude/test-plan-scripts
-
-# Install Python dependencies
+cd ~/.claude/plugins/cache/opendatahub-skills/test-plan/<version>
 uv pip install -e ".[dev]"
 ```
 
-After setup, use skills normally:
+Use skills:
 ```bash
 /test-plan.create RHAISTRAT-400
 /test-plan.create-cases
 /test-plan.publish
 ```
 
-### Option 2: Local Development (For Contributors)
+### Option 2: Manual Clone (For Contributors)
 
-Clone the repository and work locally:
+Clone the repository directly:
 
 ```bash
-# Clone to your development directory
 git clone https://github.com/fege/test-plan ~/Code/test-plan
 cd ~/Code/test-plan
-
-# Install dependencies
 uv pip install -e ".[dev]"
-
-# Skills are available from .claude/skills/ directory
-/test-plan.create RHAISTRAT-400
 ```
+
+Skills are available from `.claude/skills/` directory.
+
+**Note**: Skills use symlinks for shared utilities (`test-plan-common/scripts → ../../../scripts`). Both installation methods clone the full repository, so symlinks resolve correctly.
 
 ## Usage
 
