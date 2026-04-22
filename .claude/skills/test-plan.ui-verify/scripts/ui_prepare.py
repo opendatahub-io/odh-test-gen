@@ -32,21 +32,19 @@ except ImportError:
 from paths import SKILL_DIR, TMP_DIR  # defined once in paths.py
 from browser_common import do_oauth_login  # scripts/ is a package; import works directly
 from helpers import is_ui_test as _is_ui_test, matches_tc_filter as _matches_tc_filter
+from github_utils import fetch_meta, fetch_tc_files
 
-# Add the repo's top-level scripts/ to sys.path so shared utilities
-# (utils.tc_parser, utils.frontmatter_utils, …) are importable.
-# Use git to locate the repo root — robust regardless of install location.
-_git = subprocess.run(
-    ["git", "rev-parse", "--show-toplevel"],
-    capture_output=True, text=True, cwd=str(SKILL_DIR),
-)
-if _git.returncode == 0 and _git.stdout.strip():
-    _repo_scripts = os.path.join(_git.stdout.strip(), "scripts")
-    if _repo_scripts not in sys.path:
-        sys.path.insert(0, _repo_scripts)
 
-from utils.tc_parser import parse_tc_file
-from utils.frontmatter_utils import read_frontmatter
+def _ensure_repo_on_path() -> None:
+    """Add the repo's top-level scripts/ to sys.path (idempotent, no side effects at import time)."""
+    _git = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, cwd=str(SKILL_DIR),
+    )
+    if _git.returncode == 0 and _git.stdout.strip():
+        _repo_scripts = os.path.join(_git.stdout.strip(), "scripts")
+        if _repo_scripts not in sys.path:
+            sys.path.insert(0, _repo_scripts)
 
 CONTEXT    = TMP_DIR / "ui_context.json"
 TV_FILE    = SKILL_DIR / "test-variables.yml"
@@ -164,91 +162,29 @@ def phase0_preflight():
 
 # ── Phase 1: TC loading ───────────────────────────────────────────────────────
 
-def _fetch_file(repo: str, path: str, ref: str) -> str | None:
-    """Fetch a single file's decoded content from the GitHub Contents API."""
-    import base64
-    r = run(["gh", "api", f"repos/{repo}/contents/{path}?ref={ref}", "--jq", ".content"])
-    if r.returncode != 0:
-        return None
-    raw = r.stdout.strip().strip('"').replace("\\n", "\n")
-    try:
-        return base64.b64decode(raw).decode()
-    except Exception:
-        return raw
-
-
-def _fetch_meta(repo: str, feature: str, ref: str) -> dict:
-    """Read TestPlan.md frontmatter for feature/strat_key."""
-    content = _fetch_file(repo, f"{feature}/TestPlan.md", ref)
-    if not content or not content.startswith("---"):
-        return {}
-    end = content.find("---", 3)
-    if end == -1:
-        return {}
-    fm = yaml.safe_load(content[3:end]) or {}
-    return {"feature": fm.get("feature", feature), "strat_key": fm.get("strat_key", "")}
-
-
-def _fetch_tc_files(repo: str, feature: str, ref: str,
-                    tc_patterns: list) -> list[tuple[str, str]]:
-    """Fetch matching TC-*.md files. Returns [(filename, content)]."""
-    exact_id = re.compile(r'^TC-[A-Z0-9]+-\d+$')
-
-    def matches(tc_id: str) -> bool:
-        return _matches_tc_filter(tc_id, tc_patterns)
-
-    # Fast path: all patterns are exact IDs — fetch directly without listing
-    if tc_patterns and all(exact_id.match(p) for p in tc_patterns):
-        filenames = [f"{p}.md" for p in tc_patterns]
-        print(f"  Fetching {len(filenames)} TC file(s) directly...", flush=True)
-        out = []
-        for i, name in enumerate(filenames, 1):
-            print(f"  [{i}/{len(filenames)}] {name}", flush=True)
-            content = _fetch_file(repo, f"{feature}/test_cases/{name}", ref)
-            if content:
-                out.append((name, content))
-            else:
-                print(f"  ⚠️  {name} not found", flush=True)
-        return out
-
-    # General path: list then filter then fetch
-    print(f"  Fetching file list from {repo}/{feature}...", flush=True)
-    r = run(["gh", "api", f"repos/{repo}/contents/{feature}/test_cases?ref={ref}",
-             "--jq", '[.[] | select(.name | test("TC-.*[.]md")) | .name]'])
-    if r.returncode != 0:
-        fail(f"Failed to fetch TC file list: {r.stderr.strip()}")
-    all_names = json.loads(r.stdout)
-    if tc_patterns:
-        all_names = [n for n in all_names if matches(n.replace(".md", ""))]
-    print(f"  Found {len(all_names)} matching TC file(s) — fetching...", flush=True)
-    out = []
-    for i, name in enumerate(sorted(all_names), 1):
-        print(f"  [{i}/{len(all_names)}] {name}", flush=True)
-        content = _fetch_file(repo, f"{feature}/test_cases/{name}", ref)
-        if content:
-            out.append((name, content))
-    return out
-
-
 def phase1_load_tcs(args):
     section("Phase 1: Load Test Plan")
 
     import tempfile
+    _ensure_repo_on_path()
+    from utils.tc_parser import parse_tc_file
+    from utils.frontmatter_utils import read_frontmatter
 
     tc_patterns = [p.strip() for p in args.tc.split(",") if p.strip()] if args.tc else []
 
     # ── Determine source ──────────────────────────────────────────────────────
     if args.test_plan_pr:
-        m = re.search(r'/(\d+)$', args.test_plan_pr)
+        m = re.search(r'/pull/(\d+)', args.test_plan_pr)
         if not m:
             fail(f"Cannot parse PR number from: {args.test_plan_pr}")
         pr_number = int(m.group(1))
-        repo = "fege/test-plan"
+        repo_m = re.search(r'github\.com/([^/]+/[^/]+)/pull', args.test_plan_pr)
+        repo = repo_m.group(1) if repo_m else "fege/collection-tests" 
         # Get PR head SHA and feature directory from PR files
         ref_r = run(["gh", "api", f"repos/{repo}/pulls/{pr_number}", "--jq", ".head.sha"])
         ref = ref_r.stdout.strip() if ref_r.returncode == 0 and ref_r.stdout.strip() else "main"
-        feat_r = run(["gh", "api", f"repos/{repo}/pulls/{pr_number}/files",
-                      "--jq", '[.[].filename | split("/")[0]] | unique | .[0]'])
+        feat_r = run(["gh", "api", f"repos/{repo}/pulls/{pr_number}/files",                                                                                                                                                
+                "--jq", '[.[].filename | select(contains("/test_cases/")) | split("/test_cases/")[0]] | unique | .[0]'])
         feature = feat_r.stdout.strip() if feat_r.returncode == 0 else ""
         if not feature:
             fail("Could not detect feature directory from PR files.")
@@ -263,8 +199,11 @@ def phase1_load_tcs(args):
     else:
         fail("No input mode specified. Use --test-plan-pr, --test-plan, or --jira.")
 
-    meta = _fetch_meta(repo, feature, ref)
-    raw_files = _fetch_tc_files(repo, feature, ref, tc_patterns)
+    meta = fetch_meta(repo, feature, ref)
+    try:
+        raw_files = fetch_tc_files(repo, feature, ref, tc_patterns)
+    except RuntimeError as e:
+        fail(str(e))
 
     # ── Parse using shared utils, writing fetched content to temp files ───────
     test_cases = []
@@ -323,8 +262,6 @@ def phase1_load_tcs(args):
         "strat_key": meta.get("strat_key", ""),
         "test_cases": test_cases,
     }
-    tcs = test_cases
-
     tcs = plan.get("test_cases", [])
 
     print(f"\n  Feature:  {plan.get('feature', '?')}")

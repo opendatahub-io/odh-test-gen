@@ -3,6 +3,10 @@ name: test-plan.ui-verify
 description: Verify UI test cases from a fege/test-plan PR against a live ODH/RHOAI cluster via Playwright browser automation. Run ui_prepare.py first for setup, then invoke this skill for TC execution and PASS/FAIL/BLOCKED reporting.
 user-invocable: true
 allowedTools:
+  # Security note: ui_assert.py accepts --js with arbitrary JavaScript that
+  # executes in the authenticated browser session. This is intentional — TC
+  # assertions require evaluating DOM state. Mitigations: the CDP port is
+  # bound to 127.0.0.1 only; TC sources must come from a trusted repository.
   - Bash(python3 *scripts/ui_read_ctx.py*)
   - Bash(python3 *scripts/ui_interact.py *)
   - Bash(python3 *scripts/ui_assert.py *)
@@ -54,7 +58,7 @@ python3 .claude/skills/test-plan.ui-verify/scripts/ui_prepare.py \
 | `scripts/ui_interact.py` | Element interaction: click, fill, goto, scroll, expand (auto-relogins on session expiry) |
 | `scripts/ui_assert.py` | Assertion runner: banner, screenshot, log, exit code; `--inspect` for diagnostic-only calls |
 | `scripts/ui_block.py` | Logs BLOCKED/INCOMPLETE verdict entries to the TC log |
-| `scripts/read_test_plan.py` | Fetches TC files from fege/test-plan |
+| `scripts/github_utils.py` | GitHub API helpers: fetch TC files and metadata via `gh` |
 | `scripts/build_element_map.py` | Regenerates element-map.yaml from odh-dashboard source |
 
 ## Output

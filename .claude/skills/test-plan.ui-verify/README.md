@@ -137,7 +137,7 @@ Strategy: RHAISTRAT-1262  |  Source: PR #5
 | `scripts/ui_interact.py` | Browser interaction: `click`, `fill`, `goto`, `scroll`, `expand`, `wait` (auto-relogins on session expiry) |
 | `scripts/ui_assert.py` | Assertion runner: banner overlay, screenshot, TC log update |
 | `scripts/ui_block.py` | Logs BLOCKED/INCOMPLETE entries to the TC log |
-| `scripts/read_test_plan.py` | Fetches TC-*.md files from fege/test-plan via GitHub API |
+| `scripts/github_utils.py` | GitHub API helpers: fetch TC files and metadata via `gh` |
 | `scripts/build_element_map.py` | Regenerates `element-map.yaml` from an odh-dashboard source checkout |
 
 ## How it works
