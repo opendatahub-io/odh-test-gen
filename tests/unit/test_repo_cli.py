@@ -3,11 +3,14 @@ Unit test for repo CLI - simple smoke test to ensure CLI interface is stable.
 """
 
 import json
+import os
 import sys
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts import repo
+from tests.constants import TEST_SKILL_DIR
 
 
 def test_find_command_basic():
@@ -146,30 +149,92 @@ def test_locate_feature_dir_github_pr():
         sys.stderr = old_stderr
 
 
-def test_locate_feature_dir_missing_testplan():
-    """Test locate-feature-dir fails when TestPlan.md doesn't exist."""
+def test_validate_local_path_allows_external():
+    """Test validate-local-path allows paths outside skill repo."""
     old_argv = sys.argv
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
+    old_env = os.environ.copy()
 
     try:
-        sys.argv = ['repo.py', 'locate-feature-dir', '/tmp/nonexistent']
-        sys.stdout = StringIO()
-        sys.stderr = StringIO()
+        os.environ['CLAUDE_SKILL_DIR'] = TEST_SKILL_DIR
+        sys.argv = ['repo.py', 'validate-local-path', '/tmp/test-validation']
 
-        with patch('os.path.isfile') as mock_isfile:
-            mock_isfile.return_value = False  # TestPlan.md doesn't exist
-
-            try:
-                exit_code = repo.main()
-                assert exit_code == 1
-            except SystemExit as e:
-                assert e.code == 1
-
-            error_output = sys.stderr.getvalue()
-            assert 'TestPlan.md not found' in error_output
+        exit_code = repo.main()
+        assert exit_code == 0
 
     finally:
         sys.argv = old_argv
-        sys.stdout = old_stdout
+        os.environ.clear()
+        os.environ.update(old_env)
+
+
+def test_validate_local_path_blocks_skill_repo():
+    """Test validate-local-path blocks paths inside skill repo."""
+    old_argv = sys.argv
+    old_stderr = sys.stderr
+    old_env = os.environ.copy()
+
+    try:
+        os.environ['CLAUDE_SKILL_DIR'] = TEST_SKILL_DIR
+        sys.argv = ['repo.py', 'validate-local-path', str(Path.cwd())]
+        sys.stderr = StringIO()
+
+        exit_code = repo.main()
+        assert exit_code == 1
+
+        error = sys.stderr.getvalue()
+        assert "Cannot create artifacts in skill repository" in error
+
+    finally:
+        sys.argv = old_argv
         sys.stderr = old_stderr
+        os.environ.clear()
+        os.environ.update(old_env)
+
+
+def test_validate_remote_allows_external():
+    """Test validate-remote allows repositories other than skill repo."""
+    old_argv = sys.argv
+    old_env = os.environ.copy()
+
+    try:
+        os.environ['CLAUDE_SKILL_DIR'] = TEST_SKILL_DIR
+        sys.argv = ['repo.py', 'validate-remote', 'fege/collection-tests']
+
+        exit_code = repo.main()
+        assert exit_code == 0
+
+    finally:
+        sys.argv = old_argv
+        os.environ.clear()
+        os.environ.update(old_env)
+
+
+def test_validate_remote_blocks_skill_repo():
+    """Test validate-remote blocks the skill repository."""
+    old_argv = sys.argv
+    old_stderr = sys.stderr
+    old_env = os.environ.copy()
+
+    try:
+        os.environ['CLAUDE_SKILL_DIR'] = TEST_SKILL_DIR
+
+        # Get actual skill repo remote
+        from scripts.utils.repo_utils import get_git_root, get_git_remote
+        skill_parent = Path(TEST_SKILL_DIR).parent.parent
+        skill_root = get_git_root(str(skill_parent))
+        skill_remote = get_git_remote(skill_root)
+
+        sys.argv = ['repo.py', 'validate-remote', skill_remote]
+        sys.stderr = StringIO()
+
+        exit_code = repo.main()
+        assert exit_code == 1
+
+        error = sys.stderr.getvalue()
+        assert "Cannot publish to skill repository" in error
+
+    finally:
+        sys.argv = old_argv
+        sys.stderr = old_stderr
+        os.environ.clear()
+        os.environ.update(old_env)

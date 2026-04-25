@@ -29,6 +29,14 @@ Usage:
     # Outputs JSON: {"feature_dir": "/path", "source_type": "local|github", "repo_owner": "...", "repo_name": "..."}
     # Exit code: 0 if success, 1 if failed
 
+    # Validate local path is not in skill repository (requires CLAUDE_SKILL_DIR env var)
+    uv run python scripts/repo.py validate-local-path <path> [--force]
+    # Exit code: 0 if valid, 1 if invalid (in skill repo)
+
+    # Validate remote repository is not skill repository (requires CLAUDE_SKILL_DIR env var)
+    uv run python scripts/repo.py validate-remote <owner/repo>
+    # Exit code: 0 if valid, 1 if invalid (is skill repo)
+
 Examples:
     uv run python scripts/repo.py find collection-tests
     uv run python scripts/repo.py find-known odh-test-context
@@ -36,6 +44,8 @@ Examples:
     uv run python scripts/repo.py clone https://github.com/fege/test-plan ~/Code/test-plan
     uv run python scripts/repo.py locate-feature-dir ~/Code/collection-tests/mcp_catalog
     uv run python scripts/repo.py locate-feature-dir https://github.com/org/repo/pull/5
+    uv run python scripts/repo.py validate-local-path /tmp/test-validation
+    uv run python scripts/repo.py validate-remote fege/collection-tests
 """
 
 import argparse
@@ -51,6 +61,8 @@ from scripts.utils.repo_utils import (
     find_known_repo,
     find_target_repo,
     clone_repo,
+    get_git_root,
+    get_git_remote,
 )
 
 
@@ -233,6 +245,75 @@ def _find_testplan_in_repo(repo_path):
     return None
 
 
+def cmd_validate_local_path(args):
+    """Validate that a local path is NOT inside the skill repository."""
+    path = args.path
+    force = args.force
+
+    # If force flag is set, skip validation
+    if force:
+        return 0
+
+    # Get skill repo root (CLAUDE_SKILL_DIR must be set in environment)
+    skill_dir = os.environ.get('CLAUDE_SKILL_DIR')
+    if not skill_dir:
+        print("WARNING: CLAUDE_SKILL_DIR not set, skipping validation", file=sys.stderr)
+        return 0
+
+    # Navigate up from skill dir to repo root
+    skill_parent = Path(skill_dir).parent.parent
+    skill_root = get_git_root(str(skill_parent))
+
+    if not skill_root:
+        # Can't detect skill repo, allow
+        return 0
+
+    # Get absolute path of target directory
+    path_abs = os.path.abspath(os.path.expanduser(path))
+
+    # Check if path is inside skill repo
+    if path_abs.startswith(skill_root):
+        print(f"❌ ERROR: Cannot create artifacts in skill repository ({skill_root})", file=sys.stderr)
+        print("Please specify a different directory.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Tip: Use --output-dir flag to force creation in current directory if needed.", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+def cmd_validate_remote_repo(args):
+    """Validate that a remote repository is NOT the skill repository."""
+    repo = args.repo
+
+    # Get skill repo remote
+    skill_dir = os.environ.get('CLAUDE_SKILL_DIR')
+    if not skill_dir:
+        print("WARNING: CLAUDE_SKILL_DIR not set, skipping validation", file=sys.stderr)
+        return 0
+
+    skill_parent = Path(skill_dir).parent.parent
+    skill_root = get_git_root(str(skill_parent))
+
+    if not skill_root:
+        # Can't detect skill repo, allow
+        return 0
+
+    skill_remote = get_git_remote(skill_root)
+
+    if not skill_remote:
+        # Can't detect skill repo remote, allow
+        return 0
+
+    # Check if target repo matches skill repo
+    if repo == skill_remote:
+        print(f"❌ ERROR: Cannot publish to skill repository ({skill_remote})", file=sys.stderr)
+        print("Test plans must be published to a separate repository.", file=sys.stderr)
+        return 1
+
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Repository discovery and management CLI",
@@ -291,6 +372,30 @@ def main():
         help="Local path, GitHub PR URL, or GitHub branch URL"
     )
     parser_locate.set_defaults(func=cmd_locate_feature_dir)
+
+    # validate-local-path command
+    parser_validate_path = subparsers.add_parser(
+        "validate-local-path",
+        help="Validate that a local path is not inside the skill repository"
+    )
+    parser_validate_path.add_argument("path", help="Path to validate")
+    parser_validate_path.add_argument(
+        "--force",
+        action="store_true",
+        help="Force flag - skip validation"
+    )
+    parser_validate_path.set_defaults(func=cmd_validate_local_path)
+
+    # validate-remote command
+    parser_validate_remote = subparsers.add_parser(
+        "validate-remote",
+        help="Validate that a remote repository is not the skill repository"
+    )
+    parser_validate_remote.add_argument(
+        "repo",
+        help="Remote repository in owner/repo format"
+    )
+    parser_validate_remote.set_defaults(func=cmd_validate_remote_repo)
 
     args = parser.parse_args()
 

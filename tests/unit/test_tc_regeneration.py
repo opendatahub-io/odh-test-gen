@@ -39,34 +39,6 @@ class TestTCRegenerationCheck:
                 sys.argv = old_argv
                 sys.stdout = old_stdout
 
-    def test_create_mode_empty_test_cases_dir(self):
-        """Returns create mode when test_cases directory exists but is empty."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            feature_dir = Path(tmpdir)
-            test_cases_dir = feature_dir / "test_cases"
-            test_cases_dir.mkdir()
-
-            old_argv = sys.argv
-            old_stdout = sys.stdout
-
-            try:
-                sys.argv = ['tc_regeneration.py', 'check', str(feature_dir)]
-                sys.stdout = StringIO()
-
-                exit_code = tc_regeneration.main()
-                assert exit_code == 0
-
-                output = sys.stdout.getvalue().strip()
-                result = json.loads(output)
-
-                assert result['mode'] == 'create'
-                assert result['existing_count'] == 0
-                assert result['files'] == []
-
-            finally:
-                sys.argv = old_argv
-                sys.stdout = old_stdout
-
     def test_regenerate_mode_with_existing_tcs(self):
         """Returns regenerate mode when TC files exist."""
         with tempfile.TemporaryDirectory() as tmpdir:

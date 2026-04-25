@@ -106,14 +106,10 @@ If the MCP tool **is available**, proceed to Step 0.3.
 
 5. **Validate against skill repository** (unless `FORCE_OUTPUT_DIR=true`):
    ```bash
-   # Export CLAUDE_SKILL_DIR so functions in the script can use it
-   export CLAUDE_SKILL_DIR
-
-   # Load validation utilities (via symlink)
-   source ${CLAUDE_SKILL_DIR}/scripts/skill_repo_guard.sh
-
    # Validate path is not in skill repo
-   validate_local_path "$target_dir" "$FORCE_OUTPUT_DIR" || exit 1
+   export CLAUDE_SKILL_DIR
+   force_flag=$([ "$FORCE_OUTPUT_DIR" = "true" ] && echo "--force" || echo "")
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py validate-local-path "$target_dir" $force_flag || exit 1
    ```
 
 6. **Ask to save preference** via AskUserQuestion (unless using `--output-dir`):

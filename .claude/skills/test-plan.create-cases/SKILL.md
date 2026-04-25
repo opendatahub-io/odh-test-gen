@@ -90,8 +90,8 @@ Do NOT proceed until this succeeds.
        
        # Validate against skill repository
        export CLAUDE_SKILL_DIR
-       source ${CLAUDE_SKILL_DIR}/scripts/skill_repo_guard.sh
-       validate_local_path "$feature_dir" "$FORCE_OUTPUT_DIR" || exit 1
+       force_flag=$([ "$FORCE_OUTPUT_DIR" = "true" ] && echo "--force" || echo "")
+       uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py validate-local-path "$feature_dir" $force_flag || exit 1
    fi
    ```
 

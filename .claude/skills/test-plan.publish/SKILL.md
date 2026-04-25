@@ -130,19 +130,15 @@ If not in a git repo, skip this check (common for test artifacts created with `-
 
 **IMPORTANT**: Test plans must NOT be published to the skill repository.
 
-1. **Load validation utilities**:
+1. **Export CLAUDE_SKILL_DIR** for validation utilities:
    ```bash
-   # Export CLAUDE_SKILL_DIR so functions in the script can use it
    export CLAUDE_SKILL_DIR
-
-   # Load via symlink
-   source ${CLAUDE_SKILL_DIR}/scripts/skill_repo_guard.sh
    ```
 
 2. **If `--repo` was provided in arguments**:
    - Validate it's not the skill repo:
      ```bash
-     if ! validate_remote_repo "$provided_repo"; then
+     if ! uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py validate-remote "$provided_repo"; then
          echo "Suggested: fege/collection-tests"
          exit 1
      fi
@@ -158,7 +154,7 @@ If not in a git repo, skip this check (common for test artifacts created with `-
    - Check format (must be `owner/repo`)
    - **Validate not skill repo**:
      ```bash
-     if ! validate_remote_repo "$target_repo"; then
+     if ! uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py validate-remote "$target_repo"; then
          echo "Please specify a different repository."
          # Ask again via AskUserQuestion
      fi
@@ -209,12 +205,12 @@ If the user declines, stop.
    # Export CLAUDE_SKILL_DIR so functions in the script can use it
    export CLAUDE_SKILL_DIR
 
-   # Load validation utilities (already sourced in Step 1.5, but safe to source again)
-   source ${CLAUDE_SKILL_DIR}/scripts/skill_repo_guard.sh
-
    # Check if we're in the skill repo
    current_repo=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-   skill_repo_root=$(get_skill_repo_root)
+   
+   # Get skill repo root
+   skill_parent="${CLAUDE_SKILL_DIR}/../.."
+   skill_repo_root=$(cd "$skill_parent" && git rev-parse --show-toplevel 2>/dev/null || echo "")
 
    if [ -n "$current_repo" ] && [ -n "$skill_repo_root" ] && [ "$current_repo" = "$skill_repo_root" ]; then
        echo "⚠ Currently in skill repository, switching to publish directory"

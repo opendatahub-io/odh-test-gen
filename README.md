@@ -278,10 +278,9 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 
 scripts/
 ├── frontmatter.py          # YAML frontmatter validation and manipulation
-├── skill_repo_guard.sh     # Validates paths/repos to prevent skill repo pollution
-├── repo.py                 # Repository discovery, cloning, and feature directory location
+├── repo.py                 # Repository discovery, cloning, validation, and feature location
 ├── tc_regeneration.py      # Test case regeneration mode detection
-└── utils/                  # Shared utilities for skills
+└── utils/                  # Shared utilities (schemas, repo utils, frontmatter utils)
 ```
 
 ## Development

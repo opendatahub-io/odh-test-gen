@@ -85,8 +85,7 @@ Do NOT proceed until this succeeds.
    if [ "$source_type" = "local" ]; then
        # Validate against skill repository (no force flag for updates)
        export CLAUDE_SKILL_DIR
-       source ${CLAUDE_SKILL_DIR}/scripts/skill_repo_guard.sh
-       validate_local_path "$feature_dir" "false" || exit 1
+       uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py validate-local-path "$feature_dir" || exit 1
    fi
    ```
 
