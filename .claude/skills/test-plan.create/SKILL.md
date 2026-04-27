@@ -199,8 +199,11 @@ fi
 ```
 
 **Then set frontmatter:**
+
+**IMPORTANT**: Run Python scripts from the test-plan repo directory (where pyproject.toml is). Do NOT `cd` to the output directory before running scripts — use absolute paths for file arguments.
+
 ```bash
-uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_name>/TestPlan.md \
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <absolute_path_to_output_dir>/<feature_name>/TestPlan.md \
     feature="<feature_name>" \
     source_key=<JIRA_KEY> \
     source_type=$SOURCE_TYPE \
