@@ -280,7 +280,13 @@ The reviewer handles auto-revision internally (up to 2 cycles) and writes `<feat
 **Handle the review output:**
 
 1. **Read the verdict** from `<feature_name>/TestPlanReview.md` frontmatter
-2. **Auto-fix** (if any): Apply clearly correct improvements suggested by the reviewer (e.g., consistency fixes, missing entries in Section 10.2, generic priority definitions that should be feature-specific). Edit the TestPlan.md directly using the Edit tool.
+2. **Auto-fix** (if any): Apply clearly correct improvements suggested by the reviewer with these constraints:
+   - Consistency fixes (e.g., missing entries in Section 10.2 that are in Section 4)
+   - Generic priority definitions that should be feature-specific (when the specific language is in the strategy)
+   - **NEVER invent resolution paths for TBDs** — if the strategy doesn't specify where to find version requirements or missing details, leave them as plain "TBD". The gaps are already documented in TestPlanGaps.md.
+   - **Only add content that is directly traceable to the source documents** (strategy, ADR, API specs, design docs, or any additional_docs) — do not make assumptions about where documentation exists or what it contains.
+
+   Use the Edit tool for any auto-fixes applied.
 3. **Present summary**: Show the user:
    - Final score and verdict from TestPlanReview.md
    - Any auto-fixes applied
