@@ -108,11 +108,19 @@ Check if there are uncommitted changes in the feature directory. This is informa
 ```bash
 # Check if feature_dir is in a git repo
 if git -C <feature_dir> rev-parse --git-dir > /dev/null 2>&1; then
-    git -C <feature_dir> status --porcelain .
+    changes=$(git -C <feature_dir> status --porcelain .)
+    if [ -n "$changes" ]; then
+        echo "⚠ Uncommitted changes detected:"
+        echo "$changes"
+    else
+        echo "✓ Working directory is clean"
+    fi
+else
+    echo "ℹ Not a git repository - skipping clean state check"
 fi
 ```
 
-If not in a git repo, skip this check (common for test artifacts created with `--output-dir`).
+**Note**: Use variable name `changes` instead of `status` (which is readonly in zsh).
 
 ### Step 1: Read Metadata
 
@@ -236,28 +244,38 @@ If the user declines, stop.
    echo "✓ Publishing to: $target_repo"
    ```
 
-3. Check if branch exists remotely and handle accordingly:
+3. Safely checkout branch using shared utility (handles uncommitted changes, stale branches):
    ```bash
-   git fetch publish-target main
+   # Get repo root (feature_dir may be a subdirectory)
+   repo_root=$(git -C "$feature_dir" rev-parse --show-toplevel)
    
-   # Check if branch already exists
+   # Check if branch exists remotely
+   git fetch publish-target main
    if git ls-remote --heads publish-target test-plan/<source_key> | grep -q test-plan/<source_key>; then
-       echo "Branch test-plan/<source_key> already exists"
-       # Branch exists - add commit on top (update workflow)
-       git fetch publish-target test-plan/<source_key>
-       git checkout -b test-plan/<source_key> publish-target/test-plan/<source_key> || git checkout test-plan/<source_key>
-       git pull publish-target test-plan/<source_key>
+       echo "Branch test-plan/<source_key> already exists - updating"
+       # Branch exists - use safe-checkout to handle stale local branches
+       uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py safe-checkout "$repo_root" test-plan/<source_key> --remote publish-target
+       if [ $? -ne 0 ]; then
+           echo "Failed to checkout branch safely"
+           exit 1
+       fi
    else
        echo "Creating new branch test-plan/<source_key>"
        # New branch - create from main (initial publish workflow)
-       git checkout -b test-plan/<source_key> publish-target/main
+       # First ensure we're on main and up-to-date
+       uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py safe-checkout "$repo_root" main --remote publish-target || exit 1
+       # Then create new branch from main
+       git checkout -b test-plan/<source_key>
    fi
    ```
 
    **Rationale**: 
    - Version-free branch names (`test-plan/<source_key>`) allow updates to push to the same PR
-   - If branch exists: Add commit on top (preserves PR history, supports `/test-plan.update` workflow)
-   - If branch doesn't exist: Create from `main` (initial publish)
+   - Uses shared `safe-checkout` utility for:
+     - Uncommitted changes check (prevents data loss)
+     - Stale local branch detection (addresses PR review comment #2)
+     - Automatic pull to update stale branches
+   - If branch doesn't exist: Create from up-to-date `main`
    - No user prompt needed - the workflow is deterministic
 
 4. Stage only public artifacts in the feature directory:

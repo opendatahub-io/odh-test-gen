@@ -37,6 +37,10 @@ Usage:
     uv run python scripts/repo.py validate-remote <owner/repo>
     # Exit code: 0 if valid, 1 if invalid (is skill repo)
 
+    # Safely checkout branch with uncommitted changes check and stale branch detection
+    uv run python scripts/repo.py safe-checkout <repo_path> <branch> [--remote <remote_name>]
+    # Exit code: 0 if success, 1 if uncommitted changes or git error
+
 Examples:
     uv run python scripts/repo.py find collection-tests
     uv run python scripts/repo.py find-known odh-test-context
@@ -46,6 +50,8 @@ Examples:
     uv run python scripts/repo.py locate-feature-dir https://github.com/org/repo/pull/5
     uv run python scripts/repo.py validate-local-path /tmp/test-validation
     uv run python scripts/repo.py validate-remote fege/collection-tests
+    uv run python scripts/repo.py safe-checkout ~/Code/collection-tests test-plan/RHAISTRAT-400
+    uv run python scripts/repo.py safe-checkout ~/Code/collection-tests test-plan/RHAISTRAT-400 --remote publish-target
 """
 
 import argparse
@@ -148,36 +154,105 @@ def _handle_github_pr(owner, repo, pr_number):
         return 1
 
 
+def safe_checkout_branch(repo_path, branch, remote="origin"):
+    """Safely checkout a branch with safety checks.
+
+    Performs:
+    - Uncommitted changes check (fails if dirty)
+    - Stale branch detection (warns and updates if behind remote)
+    - Creates tracking branch if doesn't exist locally
+    - Pulls latest changes
+
+    Args:
+        repo_path: Path to git repository
+        branch: Branch name to checkout
+        remote: Remote name (default: "origin")
+
+    Returns:
+        0 on success, 1 on error
+    """
+    try:
+        # Check for dirty working tree
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        if status_result.stdout.strip():
+            # Uncommitted changes found
+            print(f"ERROR: Cannot checkout branch - uncommitted changes in {repo_path}", file=sys.stderr)
+            print("Please commit or stash your changes first:", file=sys.stderr)
+            print("  git stash", file=sys.stderr)
+            print("  # or", file=sys.stderr)
+            print("  git add . && git commit -m 'WIP'", file=sys.stderr)
+            return 1
+
+        # Fetch latest from remote
+        subprocess.run(["git", "fetch", remote], cwd=repo_path, check=True, capture_output=True)
+
+        # Check if branch exists locally
+        local_branch_exists = subprocess.run(
+            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+            cwd=repo_path,
+            capture_output=True
+        ).returncode == 0
+
+        if local_branch_exists:
+            # Check if local branch is stale (behind remote)
+            local_sha = subprocess.run(
+                ["git", "rev-parse", branch],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=True
+            ).stdout.strip()
+
+            remote_sha = subprocess.run(
+                ["git", "rev-parse", f"{remote}/{branch}"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=True
+            ).stdout.strip()
+
+            if local_sha != remote_sha:
+                print(f"⚠️  Local branch '{branch}' is stale. Updating...", file=sys.stderr)
+
+            # Checkout and pull
+            subprocess.run(["git", "checkout", branch], cwd=repo_path, check=True, capture_output=True)
+            subprocess.run(["git", "pull", remote, branch], cwd=repo_path, check=True, capture_output=True)
+        else:
+            # Branch doesn't exist locally, create tracking branch
+            subprocess.run(
+                ["git", "checkout", "-b", branch, f"{remote}/{branch}"],
+                cwd=repo_path,
+                check=True,
+                capture_output=True
+            )
+
+        return 0
+
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: Git operations failed: {e}", file=sys.stderr)
+        return 1
+
+
 def _handle_github_branch(owner, repo, branch):
-    """Handle GitHub branch - find/clone repo, checkout branch, find TestPlan.md."""
-    # Check if repo exists locally
+    """Handle GitHub branch - find/clone repo, checkout branch safely, find TestPlan.md.
+
+    Safety: Checks for uncommitted changes before checkout to prevent data loss.
+    """
     repo_path = find_repo_in_common_locations(repo)
 
     if repo_path:
-        # Repo found locally - checkout branch
-        try:
-            subprocess.run(["git", "fetch", "origin"], cwd=repo_path, check=True, capture_output=True)
-            # Try to checkout existing branch or create tracking branch
-            checkout_result = subprocess.run(
-                ["git", "checkout", branch],
-                cwd=repo_path,
-                capture_output=True,
-                text=True
-            )
-            if checkout_result.returncode != 0:
-                # Branch doesn't exist locally, create tracking branch
-                subprocess.run(
-                    ["git", "checkout", "-b", branch, f"origin/{branch}"],
-                    cwd=repo_path,
-                    check=True,
-                    capture_output=True
-                )
-            subprocess.run(["git", "pull", "origin", branch], cwd=repo_path, check=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            print(f"ERROR: Git operations failed: {e}", file=sys.stderr)
+        # Repo exists locally - use safe checkout
+        if safe_checkout_branch(repo_path, branch, remote="origin") != 0:
             return 1
     else:
-        # Clone repo
+        # Clone repo to ~/Code
         repo_url = f"https://github.com/{owner}/{repo}.git"
         target_path = os.path.expanduser(f"~/Code/{repo}")
         repo_path = clone_repo(repo_url, target_path)
@@ -192,8 +267,8 @@ def _handle_github_branch(owner, repo, branch):
             print(f"ERROR: Failed to checkout branch {branch}: {e}", file=sys.stderr)
             return 1
 
-    # Find TestPlan.md in the repository
-    feature_dir = _find_testplan_in_repo(repo_path)
+    # Find TestPlan.md in the repository (pass branch for disambiguation)
+    feature_dir = _find_testplan_in_repo(repo_path, branch_hint=branch)
     if not feature_dir:
         print(f"ERROR: TestPlan.md not found in {repo_path}", file=sys.stderr)
         return 1
@@ -233,15 +308,53 @@ def _handle_local_path(path):
     return 0
 
 
-def _find_testplan_in_repo(repo_path):
-    """Find TestPlan.md in repository (may be in subdirectory)."""
+def _find_testplan_in_repo(repo_path, branch_hint=None):
+    """Find TestPlan.md in repository (may be in subdirectory).
+
+    Args:
+        repo_path: Path to repository
+        branch_hint: Optional branch name to help disambiguate (e.g., "test-plan/RHAISTRAT-1507")
+
+    Returns the directory containing TestPlan.md, or None if not found.
+    If multiple TestPlan.md exist, uses branch_hint to match source_key in frontmatter.
+    """
     repo_path = Path(repo_path)
 
-    # Search for TestPlan.md
-    for testplan in repo_path.rglob("TestPlan.md"):
-        # Return the directory containing TestPlan.md
-        return str(testplan.parent)
+    # Search for all TestPlan.md files
+    testplans = list(repo_path.rglob("TestPlan.md"))
 
+    if not testplans:
+        return None
+
+    if len(testplans) == 1:
+        # Only one found, no ambiguity
+        return str(testplans[0].parent)
+
+    # Multiple TestPlan.md files - try to disambiguate using branch_hint
+    if branch_hint:
+        # Extract issue key from branch name (e.g., "RHAISTRAT-1507" from "test-plan/RHAISTRAT-1507")
+        issue_key_match = re.search(r'(RHAISTRAT|RHOAIENG|RHODA)-\d+', branch_hint)
+        if issue_key_match:
+            issue_key = issue_key_match.group(0)
+
+            # Search for TestPlan.md with matching source_key in frontmatter
+            for testplan in testplans:
+                try:
+                    content = testplan.read_text()
+                    # Quick check for source_key in frontmatter
+                    if f'source_key: {issue_key}' in content[:500]:
+                        return str(testplan.parent)
+                except Exception:
+                    continue
+
+    # Multiple features found and couldn't disambiguate
+    relative_paths = [str(t.relative_to(repo_path)) for t in testplans]
+    print(f"ERROR: Multiple TestPlan.md files found in {repo_path}:", file=sys.stderr)
+    for path in sorted(relative_paths):
+        print(f"  - {path}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Please specify the feature directory explicitly:", file=sys.stderr)
+    print(f"  Example: {repo_path}/{Path(relative_paths[0]).parent}", file=sys.stderr)
     return None
 
 
@@ -269,15 +382,21 @@ def cmd_validate_local_path(args):
         return 0
 
     # Get absolute path of target directory
-    path_abs = os.path.abspath(os.path.expanduser(path))
+    path_abs = Path(os.path.expanduser(path)).resolve()
+    skill_root_path = Path(skill_root).resolve()
 
-    # Check if path is inside skill repo
-    if path_abs.startswith(skill_root):
+    # Check if path is inside skill repo (using Path.is_relative_to for clarity)
+    try:
+        path_abs.relative_to(skill_root_path)
+        # If we get here, path is inside skill repo
         print(f"❌ ERROR: Cannot create artifacts in skill repository ({skill_root})", file=sys.stderr)
         print("Please specify a different directory.", file=sys.stderr)
         print("", file=sys.stderr)
         print("Tip: Use --output-dir flag to force creation in current directory if needed.", file=sys.stderr)
         return 1
+    except ValueError:
+        # Path is not inside skill repo - good to proceed
+        pass
 
     return 0
 
@@ -312,6 +431,23 @@ def cmd_validate_remote_repo(args):
         return 1
 
     return 0
+
+
+def cmd_safe_checkout(args):
+    """Safely checkout a branch with uncommitted changes check and stale branch detection."""
+    repo_path = args.repo_path
+    branch = args.branch
+    remote = args.remote
+
+    # Expand paths
+    repo_path = os.path.expanduser(repo_path)
+
+    # Verify it's a git repo
+    if not os.path.isdir(os.path.join(repo_path, ".git")):
+        print(f"ERROR: Not a git repository: {repo_path}", file=sys.stderr)
+        return 1
+
+    return safe_checkout_branch(repo_path, branch, remote)
 
 
 def main():
@@ -396,6 +532,20 @@ def main():
         help="Remote repository in owner/repo format"
     )
     parser_validate_remote.set_defaults(func=cmd_validate_remote_repo)
+
+    # safe-checkout command
+    parser_safe_checkout = subparsers.add_parser(
+        "safe-checkout",
+        help="Safely checkout a branch with uncommitted changes check and stale branch detection"
+    )
+    parser_safe_checkout.add_argument("repo_path", help="Path to git repository")
+    parser_safe_checkout.add_argument("branch", help="Branch name to checkout")
+    parser_safe_checkout.add_argument(
+        "--remote",
+        default="origin",
+        help="Remote name (default: origin)"
+    )
+    parser_safe_checkout.set_defaults(func=cmd_safe_checkout)
 
     args = parser.parse_args()
 

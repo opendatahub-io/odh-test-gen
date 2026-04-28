@@ -208,6 +208,26 @@ The test plan needs significant rework. This may indicate the source strategy la
 Use `/test-plan.resolve-feedback <PR_URL>` to triage and apply PR feedback items.
 ```
 
+## Anti-hallucination Rules
+
+When reviewing and suggesting improvements, the score agent MUST follow these constraints:
+
+**NEVER**:
+- Invent resolution paths for TBDs (e.g., "check version in ADR section 3" when no ADR exists or that section doesn't specify versions)
+- Add specific requirements, API endpoints, or version constraints not present in source documents
+- Fabricate documentation references ("see design doc for details" when no design doc exists)
+- Assume information exists in documents without verifying
+- Create specificity improvements by inventing details
+
+**ALWAYS**:
+- Leave TBD as plain "TBD" if the strategy doesn't specify where to find the information
+- Ground all improvements in actual source document content (strategy, ADR, additional_docs)
+- Flag missing information as a gap rather than inventing a solution
+- Defer to TestPlanGaps.md for unresolved items
+- Only suggest changes that are directly traceable to source material
+
+**Why these rules matter**: The reviewer's job is to assess completeness and consistency against source documents, not to fill gaps with assumptions. Inventing resolution paths or fabricating details creates false confidence - better to acknowledge gaps explicitly so they can be resolved with real documentation.
+
 ## What This Skill Does NOT Do
 
 - Does NOT generate test plans (use `/test-plan.create`)

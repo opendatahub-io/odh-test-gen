@@ -4,12 +4,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 
 from scripts.utils.frontmatter_utils import read_frontmatter_validated, write_frontmatter
+from tests.constants import SCRIPTS_DIR
 
 
-FILTER_SCRIPT = str(Path(__file__).parent.parent.parent / "scripts" / "filter_for_revision.py")
+FILTER_SCRIPT = str(SCRIPTS_DIR / "filter_for_revision.py")
 
 
 def _write_review(feature_dir, payload):

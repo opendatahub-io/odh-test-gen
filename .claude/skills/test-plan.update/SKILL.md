@@ -157,13 +157,51 @@ Arguments:
     - Endpoints: <findings from Step 3>
     - Risks: <findings from Step 3>
     - Infrastructure: <findings from Step 3>
-  New Documents Added: <list of new doc names from Step 2>
+  New Documents: <full content from Step 2 with labels>
+    Example:
+      ADR (adr-v2.pdf):
+      <full text content of the ADR>
+
+      API Spec (api-spec.md):
+      <full text content of the API spec>
 ```
+
+**Rationale**: The merge agent needs access to actual document content (not just filenames) to:
+- Verify analyzer claims (e.g., "Gap resolved by ADR section 3.2" - agent can check if true)
+- Detect contradictions between new docs and existing content
+- Make informed decisions about what to merge vs. what to flag for manual review
+- Ground merge decisions in source material rather than trusting analyzer summaries
 
 The merge sub-agent returns:
 - Updated section content for Sections 1-4, 7-9
 - Change summary (what was added/updated/deprecated)
 - Statistics (sections updated, items added, user edits preserved)
+
+**Validate merge (manual review)**:
+1. Present the change summary to the user:
+   ```
+   Merge completed. Changes proposed:
+
+   Sections modified: <list from statistics>
+   User edits preserved in: <list from statistics>
+   Items added: <count>
+   Items updated: <count>
+   Items deprecated: <count>
+
+   <full change summary from agent>
+   ```
+
+2. Ask user via AskUserQuestion:
+   > **Review merge changes before applying**
+   >
+   > The merge agent updated <N> sections. Review the changes above.
+   >
+   > Proceed with these updates? [yes/no]
+
+3. If **no**: Stop without applying updates (TestPlan.md unchanged)
+4. If **yes**: Continue to apply updates
+
+**Rationale**: Provides manual validation that merge preserved user edits and made sensible decisions. User can review the change summary before committing to the updates.
 
 **Apply the updates**:
 1. Use Edit tool to update each modified section in TestPlan.md
@@ -182,14 +220,37 @@ Arguments:
     - Endpoints: <findings from Step 3>
     - Risks: <findings from Step 3>
     - Infrastructure: <findings from Step 3>
-  New Documents Added: <list from Step 2>
+  New Documents: <full content from Step 2 with labels>
+    Example:
+      ADR (adr-v2.pdf):
+      <full text content>
 ```
+
+**Rationale**: Same as Step 4 - the agent needs actual document content to verify gap resolution claims (e.g., "API versioning now specified in ADR section 2.3" - agent can check if true).
 
 The sub-agent returns:
 - Resolved gaps (with which doc/finding resolved them)
 - Unresolved gaps (still open)
 - New gaps identified by analyzers
 - Statistics (total before/after, resolved count)
+
+**Validate gap count arithmetic**:
+```bash
+# Extract counts from sub-agent statistics
+resolved_count=<from_statistics>
+unresolved_count=<from_statistics>
+new_count=<from_statistics>
+
+# Validate arithmetic (original - resolved + new = unresolved)
+uv run python ${CLAUDE_SKILL_DIR}/scripts/validate_gap_counts.py \
+    "$feature_dir" $resolved_count $unresolved_count $new_count
+
+if [ $? -ne 0 ]; then
+    echo "⚠️  Gap count mismatch detected. Please review resolve-gaps output manually."
+    # Ask user via AskUserQuestion: Continue anyway? [yes/no]
+    # If no: exit 1
+fi
+```
 
 **Update TestPlanGaps.md**:
 1. Write the "## Resolved Gaps" section with resolved gaps
