@@ -9,7 +9,7 @@ that the Claude skill reads to skip setup and jump straight to TC execution.
 Usage:
     python3 ui_prepare.py --test-plan-pr https://github.com/fege/test-plan/pull/5
     python3 ui_prepare.py --test-plan-pr <url> --tc TC-FILTER --priority P0
-    python3 ui_prepare.py --test-plan fege/test-plan/tool_calling_model_catalog
+    python3 ui_prepare.py --test-plan fege/test-plan/tool_calling_model_catalog   # reads from main
     python3 ui_prepare.py --target-url https://... --test-plan-pr <url>
     python3 ui_prepare.py --setup
 """

@@ -1,6 +1,6 @@
 # test-plan.ui-verify
 
-Verifies UI test cases from a `fege/test-plan` PR against a live ODH/RHOAI cluster. Uses a persistent Playwright browser via CDP — no subprocess overhead per interaction. Produces a per-TC PASS/FAIL/BLOCKED report with highlighted screenshots.
+Verifies UI test cases against a live ODH/RHOAI cluster. Loads TCs from a GitHub PR or repo folder, runs browser interactions via a persistent Playwright CDP browser, and produces a visual HTML report with per-TC PASS/FAIL/BLOCKED/INCOMPLETE verdicts and screenshots.
 
 Test cases with no UI steps are automatically marked BLOCKED; they are not skipped.
 
@@ -64,12 +64,14 @@ This loads test cases, validates credentials, launches a headless Chromium brows
 
 Claude reads the context, executes each TC via the browser, logs assertions, and writes the report.
 
+> If Claude Code does not open automatically at the end of Step 1, start it manually in the repo root and type `/test-plan.ui-verify`.
+
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--test-plan-pr <url>` | Load TCs from an open fege/test-plan PR |
-| `--test-plan <path>` | Load TCs from a merged branch (e.g. `fege/test-plan/feature_name`) |
+| `--test-plan-pr <url>` | Load TCs from any open GitHub PR (e.g. `https://github.com/org/repo/pull/5`) |
+| `--test-plan <path>` | Load TCs from a folder in main (e.g. `org/repo/feature_folder`) |
 | `--tc <filter>` | Exact TC ID (`TC-FILTER-001`) or category prefix (`TC-FILTER`, `TC-E2E,TC-CARD`) |
 | `--priority <P>` | Filter by priority: `P0`, `P1`, or `P2`. Default: all |
 | `--target-url <url>` | Override dashboard URL (skips auto-detection from `test-variables.yml`) |
@@ -101,7 +103,7 @@ Results land in `.claude/skills/test-plan.ui-verify/results/<session>/`:
 
 | File | Description |
 |------|-------------|
-| `report.html` | Visual report — filter by verdict/priority, click overview rows to jump to TCs, inline screenshot thumbnails with lightbox; open in browser |
+| `report.html` | Visual report — filter by verdict/priority, click overview rows to jump to TCs, inline screenshot thumbnails with lightbox; open with `open results/<session>/report.html` |
 | `report.md` | Plain-text Markdown summary with embedded screenshot links; for GitHub comments or terminal review |
 | `tc_log.json` | Raw assertion data (what, expected, result, detail per check) |
 | `TC-*-verify-*.png` | Highlighted screenshot for each logged assertion |
@@ -191,7 +193,7 @@ Claude (/test-plan.ui-verify)
   │   └── Marks PASS / FAIL / BLOCKED in ui_tc_log.json
   ├── Stops browser, runs cluster cleanup
   ├── Collects results into results/<session>/
-  └── Writes report.md
+  └── Generates report.html + report.md via ui_report.py
 ```
 
 ## Troubleshooting
@@ -204,4 +206,4 @@ Claude (/test-plan.ui-verify)
 
 **Session expires mid-run:** `ui_interact.py goto` detects OAuth redirects and re-authenticates automatically using `test-variables.yml` credentials. No manual intervention needed.
 
-**`gh` authentication error:** Run `gh auth login` and ensure you have read access to `fege/test-plan`.
+**`gh` authentication error:** Run `gh auth login` and ensure you have read access to the test-plan repository.

@@ -1,6 +1,6 @@
 ---
 name: test-plan.ui-verify
-description: Verify UI test cases from a fege/test-plan PR against a live ODH/RHOAI cluster via Playwright browser automation. Run ui_prepare.py first for setup, then invoke this skill for TC execution and PASS/FAIL/BLOCKED reporting.
+description: Browser-based UI test execution against live ODH/RHOAI clusters. Loads TCs from a GitHub PR or repo folder via ui_prepare.py, executes each via a persistent Playwright browser, and produces a visual HTML report with PASS/FAIL/BLOCKED/INCOMPLETE verdicts and screenshots.
 user-invocable: true
 allowedTools:
   # Security note: ui_assert.py accepts --js with arbitrary JavaScript that
@@ -40,8 +40,8 @@ python3 .claude/skills/test-plan.ui-verify/scripts/ui_prepare.py \
 
 | Flag | Description |
 |---|---|
-| `--test-plan-pr <url>` | Load TCs from an open fege/test-plan PR |
-| `--test-plan <path>` | Load TCs from merged branch (e.g. `fege/test-plan/feature_name`) |
+| `--test-plan-pr <url>` | Load TCs from any open GitHub PR |
+| `--test-plan <path>` | Load TCs from a folder in main (e.g. `org/repo/feature_folder`) |
 | `--tc <filter>` | Exact ID (`TC-FILTER-001`) or category prefix (`TC-FILTER`, `TC-E2E,TC-CARD`) |
 | `--priority <P>` | `P0`, `P1`, or `P2` — default: all priorities |
 | `--target-url <url>` | Skip route auto-detection, use this URL |
@@ -57,7 +57,7 @@ python3 .claude/skills/test-plan.ui-verify/scripts/ui_prepare.py \
 | `component-registry.yaml` | ODH component → URL/auth configuration and known routes |
 | `scripts/ui_prepare.py` | Deterministic setup: loads TCs, resolves creds/URL, launches browser, writes context |
 | `scripts/ui_interact.py` | Element interaction: click, fill, goto, scroll, expand (auto-relogins on session expiry) |
-| `scripts/ui_assert.py` | Assertion runner: banner, screenshot, log, exit code; `--inspect` for diagnostic-only calls |
+| `scripts/ui_assert.py` | Assertion runner: banner, screenshot, log, exit code; `--inspect` for diagnostic-only calls; `--click-before` to open ephemeral UI (dropdowns, menus) before asserting |
 | `scripts/ui_block.py` | Logs BLOCKED/INCOMPLETE verdict entries to the TC log |
 | `scripts/ui_report.py` | Generates `report.html` (visual, with screenshots) and `report.md` |
 | `scripts/github_utils.py` | GitHub API helpers: fetch TC files and metadata via `gh` |
