@@ -1,0 +1,30 @@
+# test-plan.ui-verify test variables
+# ─────────────────────────────────
+# Copy this file to test-variables.yml and fill in your values.
+# test-variables.yml is gitignored — never commit real credentials.
+
+# Dashboard URL — the URL you open in your browser
+target_url: "https://rh-ai.apps.my-cluster.example.com"
+
+# Identity provider name exactly as shown on the OpenShift login page
+# Common values: ldap-provider-qe, htpasswd-cluster-admin, kube:admin
+idp: "ldap-provider-qe"
+
+# Admin user credentials (used for browser OAuth login and oc operations)
+admin_user:
+  username: "ldap-admin1"
+  password: "your-password-here"
+
+# ── Optional fields ──────────────────────────────────────────────────────────
+
+# OpenShift cluster API endpoint — auto-detected from `oc config` if not set.
+# Only needed if oc is not available or you want to override the active context.
+# cluster_api: "https://api.my-cluster.example.com:6443"
+
+# Service account token for CI — bypasses oc login, no expiry.
+# Leave empty for interactive/local use.
+# oc_token: ""
+
+# Skip TLS certificate verification for oc login — set to true only for
+# clusters with self-signed or untrusted certs. Defaults to false.
+# insecure_tls: false

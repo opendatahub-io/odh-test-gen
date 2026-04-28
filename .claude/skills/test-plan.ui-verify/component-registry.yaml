@@ -1,0 +1,239 @@
+# test-plan.ui-verify component registry
+# Sources verified from live repo read — opendatahub-io/odh-dashboard (main branch)
+# Files read:
+#   frontend/src/plugins/extensions/routes.ts       — host app routes
+#   frontend/src/plugins/extensions/navigation.ts   — host app nav
+#   packages/*/extensions.ts                        — federated package routes
+#   packages/*/frontend/src/odh/extensions.ts       — federated package routes
+#   frontend/src/routes/pipelines/mlflow.ts         — mlflow path constants
+#   packages/gen-ai/frontend/src/app/utilities/routes.ts
+#   packages/model-registry/upstream/frontend/src/app/routes/modelCatalogSettings/modelCatalogSettings.ts
+#   packages/maas/frontend/src/odh/odhExtensions/odhExtensions.ts
+#   packages/model-serving/extensions/odh.ts
+#
+# Route accuracy note:
+#   All paths are exact as defined in source. Feature-gated routes are noted.
+#   Legacy routes (marked _legacy-*) redirect automatically — use the canonical path.
+#
+# NOT included (no standalone route):
+#   elyra:           JupyterLab extension, accessed through workbench spawner
+#   JupyterLab:      URL comes from the notebook route created per-project by spawner
+#   kserve:          Adds model-serving extensions, no independent nav route
+
+components:
+  odh-dashboard:
+    description: "ODH/RHOAI Main Dashboard — Module Federation host, all packages load here"
+    keywords:
+      - dashboard
+      - home
+      - projects
+      - catalog
+      - model catalog
+      - model registry
+      - model serving
+      - deployments
+      - pipelines
+      - pipeline definitions
+      - pipeline runs
+      - artifacts
+      - executions
+      - experiments
+      - workbench
+      - notebook
+      - spawner
+      - connections
+      - connection types
+      - distributed workloads
+      - workload metrics
+      - gen ai
+      - gen-ai studio
+      - chat playground
+      - ai assets
+      - prompt management
+      - prompts
+      - mcp servers
+      - mcp catalog
+      - training jobs
+      - model training
+      - fine tuning
+      - model customization
+      - feature store
+      - automl
+      - autorag
+      - evaluation
+      - eval hub
+      - mlflow
+      - mlflow embedded
+      - mlflow experiments
+      - observability
+      - cluster settings
+      - user management
+      - serving runtimes
+      - hardware profiles
+      - storage classes
+      - workbench images
+      - maas
+      - model as a service
+      - subscriptions
+      - tokens
+      - notebooks workspaces
+    url_resolution:
+      strategy: openshift-route
+      route_names:
+        - data-science-gateway
+        - odh-dashboard
+        - rhods-dashboard
+      namespace_candidates:
+        - openshift-ingress
+        - redhat-ods-applications
+        - opendatahub
+    auth:
+      strategy: openshift-oauth
+      idp_env: ODH_QA_IDP
+      user_env: ODH_QA_USERNAME
+      password_env: ODH_QA_PASSWORD
+    ssl_bypass: true
+    oauth_proxy: true
+
+    # ── Route table (verified from source, main branch) ─────────────────────
+    # Format: route-key: /canonical/path
+    # Sections match the nav structure in navigation.ts
+    known_routes:
+
+      # ── Top level ──────────────────────────────────────────────────────────
+      home:                             /
+      projects:                         /projects
+      learning-resources:               /learning-resources
+      applications-enabled:             /applications/enabled
+      applications-explore:             /applications/explore
+
+      # ── AI hub — Models tab page (/ai-hub/models/*) ───────────────────────
+      # The Models tab page hosts Catalog and Registry as sub-tabs (from model-registry package)
+      ai-hub-models:                    /ai-hub/models
+      model-catalog:                    /ai-hub/models/catalog
+      model-registry:                   /ai-hub/models/registry
+
+      # ── AI hub — Deployments (model-serving package) ──────────────────────
+      deployments:                      /ai-hub/deployments
+      deploy-wizard:                    /ai-hub/models/deployments/deploy
+
+      # ── AI hub — Model customization / fine-tuning (FINE_TUNING area) ─────
+      model-customization:              /ai-hub/model-customization
+
+      # ── AI hub — MCP servers tab page (/ai-hub/mcp-servers/*) ────────────
+      # Sub-tabs: Catalog and Deployments (from model-registry package)
+      mcp-servers:                      /ai-hub/mcp-servers
+      mcp-catalog:                      /ai-hub/mcp-servers   # catalog tab under mcp-servers
+
+      # ── Gen AI Studio (gen-ai package) ────────────────────────────────────
+      gen-ai-studio:                    /gen-ai-studio
+      chat-playground:                  /gen-ai-studio/playground
+      ai-assets:                        /gen-ai-studio/assets
+
+      # ── Gen AI Studio — AutoRAG (autorag package) ─────────────────────────
+      autorag:                          /gen-ai-studio/autorag
+
+      # ── Gen AI Studio — Prompt management (mlflow-embedded package) ───────
+      prompt-management:                /gen-ai-studio/prompts
+
+      # ── Develop & train — Pipelines (DS_PIPELINES area) ──────────────────
+      pipeline-definitions:             /develop-train/pipelines/definitions
+      pipeline-runs:                    /develop-train/pipelines/runs
+      pipeline-artifacts:               /develop-train/pipelines/artifacts
+      pipeline-executions:              /develop-train/pipelines/executions
+
+      # ── Develop & train — Experiments ────────────────────────────────────
+      pipeline-experiments:             /develop-train/experiments
+
+      # ── Develop & train — MLflow embedded (mlflow-embedded package) ───────
+      mlflow-experiments:               /develop-train/mlflow/experiments
+
+      # ── Develop & train — Training jobs (model-training package) ─────────
+      training-jobs:                    /develop-train/training-jobs
+
+      # ── Develop & train — AutoML (automl package) ─────────────────────────
+      automl:                           /develop-train/automl
+
+      # ── Develop & train — Feature store (feature-store package) ──────────
+      feature-store-overview:           /develop-train/feature-store/overview
+      feature-store-entities:           /develop-train/feature-store/entities
+      feature-store-data-sources:       /develop-train/feature-store/data-sources
+      feature-store-datasets:           /develop-train/feature-store/datasets
+      feature-store-features:           /develop-train/feature-store/features
+      feature-store-feature-views:      /develop-train/feature-store/feature-views
+      feature-store-feature-services:   /develop-train/feature-store/feature-services
+
+      # ── Observe & monitor ─────────────────────────────────────────────────
+      workload-metrics:                 /observe-monitor/workload-metrics
+      observability-dashboard:          /observe-and-monitor/dashboard   # observability package (admin)
+
+      # ── Evaluation hub (eval-hub package) ─────────────────────────────────
+      evaluation:                       /evaluation
+
+      # ── Notebooks (notebooks package) ─────────────────────────────────────
+      notebooks-workspaces:             /notebooks/workspaces
+      notebooks-workspacekinds:         /notebooks/workspacekinds
+
+      # ── MaaS / Model-as-a-Service (maas package, admin-gated) ────────────
+      maas-subscriptions:               /maas/subscriptions
+      maas-auth-policies:               /maas/auth-policies
+      maas-tokens:                      /maas/tokens
+
+      # ── Settings (admin-only unless noted) ───────────────────────────────
+      settings-general:                 /settings/cluster/general
+      settings-storage-classes:         /settings/cluster/storage-classes
+      settings-workbench-images:        /settings/environment-setup/workbench-images
+      settings-hardware-profiles:       /settings/environment-setup/hardware-profiles
+      settings-connection-types:        /settings/environment-setup/connection-types
+      settings-serving-runtimes:        /settings/model-resources-operations/serving-runtimes
+      settings-model-registry:          /settings/model-resources-operations/model-registry
+      settings-model-catalog:           /settings/model-resources-operations/model-catalog
+      settings-user-management:         /settings/user-management
+
+      # ── Legacy redirects (dashboard redirects these to canonical paths) ───
+      _legacy-enabled:                  /enabled                 # → /applications/enabled
+      _legacy-explore:                  /explore                 # → /applications/explore
+      _legacy-resources:                /resources               # → /learning-resources
+      _legacy-model-serving:            /modelServing            # → /ai-hub/models/deployments/*
+      _legacy-pipelines:                /pipelines               # → /develop-train/pipelines/definitions/*
+      _legacy-pipeline-runs:            /pipelineRuns            # → /develop-train/pipelines/runs/*
+      _legacy-experiments:              /experiments             # → /develop-train/experiments/*
+      _legacy-artifacts:                /artifacts               # → /develop-train/pipelines/artifacts/*
+      _legacy-executions:               /executions              # → /develop-train/pipelines/executions/*
+      _legacy-model-customization:      /modelCustomization      # → /ai-hub/model-customization/*
+      _legacy-distributed-workloads:    /distributedWorkloads    # → /observe-monitor/workload-metrics/*
+      _legacy-workbench-images:         /workbenchImages         # → /settings/environment-setup/workbench-images/*
+      _legacy-cluster-settings:         /clusterSettings         # → /settings/cluster/general
+      _legacy-serving-runtimes:         /servingRuntimes         # → /settings/model-resources-operations/serving-runtimes/*
+      _legacy-connection-types:         /connectionTypes         # → /settings/environment-setup/connection-types/*
+      _legacy-storage-classes:          /storageClasses          # → /settings/cluster/storage-classes/*
+      _legacy-model-registry-settings:  /modelRegistrySettings   # → /settings/model-resources-operations/model-registry/*
+      _legacy-group-settings:           /groupSettings           # → /settings/user-management
+      _legacy-hardware-profiles:        /hardwareProfiles        # → /settings/environment-setup/hardware-profiles/*
+      _legacy-notebook-controller:      /notebookController      # → /notebook-controller/*
+      _legacy-model-catalog:            /ai-hub/catalog          # → model-registry package redirect
+      _legacy-model-registry-kf:        /ai-hub/registry         # → model-registry package redirect
+
+  mlflow-tracking:
+    description: >
+      MLflow Tracking Server UI — standalone React frontend served by the MLflow
+      fastapi server (opendatahub-io/mlflow). Accessed via its own OpenShift route,
+      separate from the embedded MLflow view inside odh-dashboard (/develop-train/mlflow/*).
+    keywords:
+      - mlflow standalone
+      - mlflow server
+      - tracking server
+      - mlflow experiments standalone
+    url_resolution:
+      strategy: openshift-route-by-label
+      label_selector: "app=mlflow"
+      namespace: user-provided
+    auth:
+      strategy: openshift-oauth-or-passthrough
+      idp_env: ODH_QA_IDP
+      user_env: ODH_QA_USERNAME
+      password_env: ODH_QA_PASSWORD
+    ssl_bypass: true
+    known_routes:
+      experiments:  /
+      runs:         /#/experiments
