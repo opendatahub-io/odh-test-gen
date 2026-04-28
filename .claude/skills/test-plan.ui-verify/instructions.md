@@ -20,7 +20,7 @@ For each TC in `ctx["test_cases"]`:
 
 ### 2A — Preconditions
 
-If a precondition in `tc["preconditions"]` is verifiably not met, block and skip:
+Every TC starts with a clean, independent state — always evaluate its preconditions from scratch, never assume them from earlier TCs. If a precondition in `tc["preconditions"]` is verifiably not met, block and skip. For cluster-state preconditions that cannot be checked in the browser (e.g. "upgrade completed", "route exists"), use `oc` to verify — checking whether a route or resource exists is always sufficient to confirm or deny an upgrade/deployment precondition:
 
 ```bash
 python3 <SKILL_DIR>/scripts/ui_block.py --tc <TC_ID> --title "<TC title from ctx>" \
@@ -90,18 +90,39 @@ python3 <SKILL_DIR>/scripts/ui_assert.py \
 
 Always pass `--title` using `tc["title"]` from the context — it is stored in the report log so that `report.html` shows real TC names instead of just IDs.
 
-**For ephemeral UI state** (dropdowns, menus, accordions that close between tool calls), use `--click-before` to open the container and assert its contents in one atomic call. Never open with a separate `ui_interact.py click` and assert in the next call — the container will be closed by then:
+**For ephemeral UI state** (dropdowns, menus, accordions that close between tool calls), use `--click-before` to open the container and assert its contents in one atomic call. Always pair it with `--retry 1` — if the container was already open and the click toggled it closed, the retry re-clicks to reopen it. Never open with a separate `ui_interact.py click` and assert in the next call — the container will be closed by then:
 
 ```bash
 python3 <SKILL_DIR>/scripts/ui_assert.py \
   --tc <TC_ID> \
   --title "<TC title from ctx>" \
   --click-before "Application launcher" \
+  --retry 1 \
   --what "<Expected Result text>" \
   --expected "<expected outcome>" \
   --js "<JS that reads content from the now-open container>" \
   --screenshot verify-<short-description>
 ```
+
+**To guard against wrong-page assertions** (wrong tab, unexpected redirect), pass a stable substring of the expected URL. The assertion aborts with WRONG_PAGE (exit 2) before the JS runs if the URL does not match:
+
+```bash
+python3 <SKILL_DIR>/scripts/ui_assert.py --tc <TC_ID> --title "..." \
+  --expected-url-contains "rh-ai.apps" \
+  --what "..." --expected "..." --js "() => ..." --screenshot verify-<desc>
+```
+
+**For async-updating UI** (counters, status fields, charts that update after an action), use `--retry N` to retry the JS up to N times with 500 ms between attempts before logging FAIL:
+
+```bash
+python3 <SKILL_DIR>/scripts/ui_assert.py --tc <TC_ID> --title "..." \
+  --retry 2 \
+  --what "..." --expected "..." --js "() => ..." --screenshot verify-<desc>
+```
+
+**When checking an element's attribute** (href, text, state), always find the element first and then read its value — never search for elements that already contain the target value. An element exists regardless of what value it currently holds; searching only for the new value misses the case where it exists with the old value and produces a misleading "not found" failure. See `js-patterns.md` for the correct pattern.
+
+**When correcting a FAIL by rewriting the JS**, always add `--replace` so the first attempt does not stay in the log alongside the corrected one. The duplicate assertion warning is the signal: act on it immediately with `--replace`.
 
 **If the assertion FAILs because page state was not ready** (e.g. a section needed expanding first), fix the state via `ui_interact.py`, then re-assert with `--replace` to remove the ghost FAIL:
 

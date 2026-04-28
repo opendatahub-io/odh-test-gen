@@ -297,10 +297,25 @@ def phase1_load_tcs(args):
         print(f"       Add --tc <category> to reduce fetches (e.g. --tc TC-E2E --priority {args.priority})")
     elif not args.tc:
         print("  Tip: use --tc <ID> or <category> to narrow (e.g. --tc TC-E2E-003 or --tc TC-E2E)")
-    ans = input("Proceed with this plan? [y/N]: ").strip().lower()
-    if ans != "y":
+
+    ans = input("Proceed? [Enter = all / n = abort / TC IDs = subset, e.g. TC-UI-001,TC-UI-002]: ").strip()
+
+    if ans.lower() == "n":
         print("Aborted.")
         sys.exit(0)
+
+    if ans and ans.lower() not in ("y", "yes"):
+        # Treat input as a subset of TC IDs
+        requested = {x.strip() for x in ans.replace(",", " ").split() if x.strip()}
+        available  = {tc["id"] for tc in tcs}
+        not_found  = requested - available
+        if not_found:
+            print(f"  ⚠️  Not in plan: {', '.join(sorted(not_found))} — ignored")
+        tcs = [tc for tc in tcs if tc["id"] in requested]
+        if not tcs:
+            fail("No matching TCs in subset — aborting.")
+        print(f"  Running subset: {', '.join(tc['id'] for tc in tcs)}")
+        plan["test_cases"] = tcs
 
     return plan
 

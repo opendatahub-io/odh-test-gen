@@ -70,6 +70,22 @@ Body text always contains option panels regardless of whether an option is appli
 
 ---
 
+## Checking an element's attribute value (href, text, state)
+
+Always **find the element first, then read its value**. Never search only for elements that already carry the target value — the element exists regardless of its current state, and a selector that requires the new value returns null when the old value is present, producing a misleading "not found" failure.
+
+```js
+// ✅ correct — find the element, read its attribute, then decide PASS or FAIL
+"() => { const el=document.querySelector('<selector>'); if(!el) return 'FAIL:element not found'; const val=el.getAttribute('<attr>')||el.textContent; return val.includes('<expected>')?'PASS:'+val:'FAIL:'+val; }"
+
+// ❌ wrong — only finds elements that already have the new value; element still exists when it has old value
+"() => { const el=document.querySelector('<selector>[<attr>*=\"<expected>\"]'); return el?'PASS:'+el.getAttribute('<attr>'):'FAIL:not found'; }"
+```
+
+**Internal names vs URL strings**: a resource name (route, service, object) does not always appear in the URL. When a TC says "link navigates to the new route", check the href against what you **know is wrong** (the old pattern) rather than looking for an internal resource name as a URL substring. Use `--inspect` to read the actual current value first if uncertain what the URL looks like.
+
+---
+
 ## Key rules
 
 - **Counting**: always exhaust pagination (`expand`) before counting DOM elements.

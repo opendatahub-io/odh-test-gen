@@ -70,6 +70,11 @@ def update_log(tc_id: str, what: str, expected: str, result: str, detail: str,
             a for a in log[tc_id]["assertions"] if a["checked"] != what
         ]
 
+    # Warn if the same assertion is logged again without --replace so Claude knows to use it
+    if not replace and any(a.get("checked") == what for a in log[tc_id]["assertions"]):
+        print(f"  ⚠️  '{what}' logged twice for {tc_id} without --replace — "
+              f"use --replace to avoid duplicate entries", flush=True)
+
     entry = {"checked": what, "expected": expected, "result": result, "detail": detail}
     if screenshot:
         entry["screenshot"] = screenshot
@@ -184,9 +189,16 @@ def main() -> int:
     parser.add_argument("--js",           required=True)
     parser.add_argument("--screenshot",   default="verify")
     parser.add_argument("--selector",     default="")
-    parser.add_argument("--click-before", default="",
+    parser.add_argument("--click-before",          default="",
                         help="Click this element before asserting. Use for ephemeral UI state "
                              "(dropdowns, menus, accordions) that close between separate tool calls.")
+    parser.add_argument("--expected-url-contains", default="",
+                        help="Abort with WRONG_PAGE (exit 2) if the current URL does not contain "
+                             "this string. Use to guard against asserting on the wrong page or tab.")
+    parser.add_argument("--retry",                 type=int, default=0,
+                        help="Retry the JS assertion up to N times (500 ms apart) on FAIL before "
+                             "logging. Use for async-updating UI or animations that may not have "
+                             "settled. Default: 0 (no retry).")
     parser.add_argument("--inspect",      action="store_true",
                         help="Diagnostic only — run JS and screenshot but DO NOT log to TC log or change verdict")
     parser.add_argument("--replace",      action="store_true",
@@ -196,10 +208,23 @@ def main() -> int:
 
     pw, browser, page, _ctx = get_page()
     try:
-        # 1. Wait for meaningful content (resolves immediately if already loaded)
+        # 1. Wait for page stability — readyState, no active loading indicators, meaningful content.
+        #    Falls through on timeout so a slow page never hard-blocks the assertion.
+        #    Loading detection is generic:
+        #      - aria-busy="true"  ARIA standard, framework-agnostic
+        #      - [class*="pf-"][class*="-c-spinner"]  matches pf-c-spinner, pf-v5-c-spinner,
+        #        pf-v6-c-spinner, any future pf-vN-c-spinner — no version pinning needed.
+        #        On non-PF pages querySelector returns null (falsy) → branch not taken → no-op.
         try:
             page.wait_for_function(
-                "() => document.readyState === 'complete' && document.body && document.body.innerText.trim().length > 50",
+                "() => {"
+                "  if (document.readyState !== 'complete' || !document.body) return false;"
+                "  var sel = '[aria-busy=\"true\"]"
+                ",[class*=\"pf-\"][class*=\"-c-spinner\"]"
+                ",[class*=\"pf-\"][class*=\"-c-skeleton\"]';"
+                "  if (document.querySelector(sel)) return false;"
+                "  return document.body.innerText.trim().length > 50;"
+                "}",
                 timeout=8000,
             )
         except PWTimeout:
@@ -223,6 +248,16 @@ def main() -> int:
                 print(f"WRONG_PAGE: --click-before caused navigation to {page.url}", flush=True)
                 return 2
 
+        # 3b. URL pre-check — abort if the current page is not what the assertion expects.
+        #     Catches wrong-tab and redirect scenarios before they produce a false verdict.
+        if args.expected_url_contains and args.expected_url_contains not in page.url:
+            print(
+                f"WRONG_PAGE: expected URL containing {args.expected_url_contains!r}, "
+                f"got {page.url!r}",
+                flush=True,
+            )
+            return 2
+
         # 4. Show blue "Checking" banner (cosmetic — failures are silenced)
         safe_what = args.what.replace("'", " ").replace('"', " ")[:120]
         try:
@@ -240,15 +275,31 @@ def main() -> int:
         except Exception:
             pass
 
-        # 4. Hide banner, run assertion, restore banner — prevents false innerText matches
+        # 4. Hide banner, run assertion (with optional retry), restore banner.
+        #    Banner stays hidden for the full retry window — prevents its text from
+        #    appearing in innerText checks inside the JS assertion.
         try:
             page.evaluate("() => { const b=document.getElementById('ui-banner'); if(b) b.style.visibility='hidden'; }")
         except Exception:
             pass
-        try:
-            raw = page.evaluate(args.js)  # direct Python return — no stdout parsing!
-        except Exception as e:
-            raw = f"FAIL:JS error — {str(e)[:120]}"
+
+        raw = f"FAIL:assertion did not run"
+        for _attempt in range(max(1, args.retry + 1)):
+            # On retry with --click-before: re-click so a toggled-closed container
+            # gets toggled open again before the JS re-runs.
+            if _attempt > 0 and args.click_before:
+                _click_before(page, args.click_before)
+            try:
+                raw = page.evaluate(args.js)  # direct Python return — no stdout parsing!
+            except Exception as e:
+                raw = f"FAIL:JS error — {str(e)[:120]}"
+            if not isinstance(raw, str):
+                raw = str(raw)
+            if raw.startswith("PASS") or _attempt >= args.retry:
+                break
+            print(f"  retry {_attempt + 1}/{args.retry} (assertion not yet PASS)…", flush=True)
+            page.wait_for_timeout(500)
+
         try:
             page.evaluate("() => { const b=document.getElementById('ui-banner'); if(b) b.style.visibility='visible'; }")
         except Exception:
