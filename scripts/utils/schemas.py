@@ -128,6 +128,12 @@ SCHEMAS = {
             "type": "string",
             "required": True,
         },
+        "upgrade_phase": {
+            "type": "string",
+            "required": False,
+            "enum": ["pre", "post", "both"],
+            "default": None,
+        },
     },
     "test-gaps": {
         "feature": {

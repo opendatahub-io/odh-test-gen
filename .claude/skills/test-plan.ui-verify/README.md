@@ -77,6 +77,8 @@ Claude reads the context, executes each TC via the browser, logs assertions, and
 | `--target-url <url>` | Override dashboard URL (skips auto-detection from `test-variables.yml`) |
 | `--refresh-map <path>` | Regenerate `element-map.yaml` from an odh-dashboard source checkout |
 | `--setup` | Print cluster API and credential field guide, then exit |
+| `--upgrade-phase <pre\|post>` | Upgrade testing: `pre` captures a baseline on the old cluster; `post` runs on the new cluster and generates a comparison report |
+| `--baseline <session-dir>` | Explicit baseline for `--upgrade-phase post`; auto-selected from baseline if omitted |
 
 ### Examples
 
@@ -95,6 +97,12 @@ python3 scripts/ui_prepare.py --test-plan-pr <url> --tc TC-FILTER
 
 # Run against a specific cluster URL
 python3 scripts/ui_prepare.py --test-plan-pr <url> --target-url https://rh-ai.apps.other-cluster.example.com
+
+# Upgrade testing — pre-upgrade baseline
+python3 scripts/ui_prepare.py --test-plan-pr <url> --upgrade-phase pre
+
+# Upgrade testing — post-upgrade comparison (TCs auto-selected from baseline)
+python3 scripts/ui_prepare.py --test-plan-pr <url> --upgrade-phase post --baseline results/<pre-session>
 ```
 
 ## Output
@@ -107,6 +115,8 @@ Results land in `.claude/skills/test-plan.ui-verify/results/<session>/`:
 | `report.md` | Plain-text Markdown summary with embedded screenshot links; for GitHub comments or terminal review |
 | `tc_log.json` | Raw assertion data (what, expected, result, detail per check) |
 | `TC-*-verify-*.png` | Highlighted screenshot for each logged assertion |
+| `upgrade-report.html` | *(upgrade post-runs only)* Side-by-side comparison: FIXED / REGRESSION / STABLE per TC; links to pre and post individual reports |
+| `pre-session/` | *(upgrade post-runs only)* Symlink to the baseline session — navigate to `pre-session/report.html` for the pre-upgrade results |
 
 ### Sample report
 
@@ -195,6 +205,54 @@ Claude (/test-plan.ui-verify)
   ├── Collects results into results/<session>/
   └── Generates report.html + report.md via ui_report.py
 ```
+
+## Upgrade testing
+
+Verify that a cluster upgrade didn't break UI behavior, then confirm a fix restored it.
+
+### Setup: configure both clusters in `test-variables.yml`
+
+```yaml
+target_url: "https://rh-ai.apps.post-cluster.example.com"  # default
+idp: "ldap-provider-qe"
+admin_user:
+  username: "admin"
+  password: "your-password"
+insecure_tls: true   # set if either cluster has an untrusted cert
+
+upgrade_clusters:
+  pre:
+    target_url: "https://rhods-dashboard.apps.pre-cluster.example.com"
+  post:
+    target_url: "https://rh-ai.apps.post-cluster.example.com"
+```
+
+Only `target_url` needs to differ per cluster — `idp`, `admin_user`, and `cluster_api` (auto-derived) are shared.
+
+### Workflow
+
+```bash
+# Phase 1 — old cluster: capture baseline
+python3 scripts/ui_prepare.py --test-plan-pr <url> --upgrade-phase pre
+
+# [upgrade the cluster]
+
+# Phase 2 — new cluster: compare against baseline (TCs auto-selected)
+python3 scripts/ui_prepare.py --test-plan-pr <url> \
+  --upgrade-phase post \
+  --baseline results/<pre-session>
+# → generates upgrade-report.html: FIXED / REGRESSION / STABLE / STILL FAILING
+
+# Phase 3 — after a fix is applied: compare against same baseline
+python3 scripts/ui_prepare.py --test-plan-pr <url> \
+  --upgrade-phase post \
+  --baseline results/<pre-session>   # same baseline as phase 2
+# → upgrade-report.html now shows FIXED where phase 2 showed REGRESSION
+```
+
+The post-session directory contains a `pre-session/` symlink to the baseline so both reports are reachable from one folder. `upgrade-report.html` includes direct links to both individual reports.
+
+**Note:** Resources created for upgrade testing are not auto-cleaned — they must persist through the upgrade cycle. Phase 6 will prompt you before proceeding and remind you to clean up manually when done.
 
 ## Troubleshooting
 

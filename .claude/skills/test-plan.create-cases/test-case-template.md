@@ -11,7 +11,7 @@
 2. {verify step with concrete checks}
 
 **Expected Results**:
-- {concrete, verifiable outcome}
+- {observable fact that can be verified without subjective judgment — name what changes, appears, or responds, not just that something "works" or "succeeds"}
 
 {include Test Data only if there are specific requests, payloads, or configurations to show}
 **Test Data**:

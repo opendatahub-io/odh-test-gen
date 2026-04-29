@@ -13,8 +13,8 @@ import yaml
 from helpers import matches_tc_filter as _matches_tc_filter
 
 
-def _run(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+def _run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
 def fetch_file(repo: str, path: str, ref: str) -> str | None:

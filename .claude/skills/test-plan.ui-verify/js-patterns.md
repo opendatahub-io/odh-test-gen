@@ -70,6 +70,22 @@ Body text always contains option panels regardless of whether an option is appli
 
 ---
 
+## Visual highlight in screenshots
+
+To mark what was actually verified in the screenshot, apply a CSS outline to the found element **inside the `--js` function** as a side effect. This works for all assertions — including dropdowns and menus — because a style-attribute change on an existing element does not trigger DOM mutation observers and will not close open overlays. The outline is automatically removed by the cleanup step.
+
+```js
+// Highlight found element green (PASS), red (FAIL) — picked up in screenshot
+"() => { const el=document.querySelector('<selector>'); if(!el) return 'FAIL:not found'; el.style.outline='3px solid green'; return 'PASS:'+el.textContent.trim(); }"
+
+// Highlight the element that contains the wrong value so it's visible in the FAIL screenshot
+"() => { const el=document.querySelector('<selector>'); if(!el) return 'FAIL:not found'; const val=el.getAttribute('<attr>'); if(val.includes('<wrong>')) { el.style.outline='3px solid red'; return 'FAIL:'+val; } el.style.outline='3px solid green'; return 'PASS:'+val; }"
+```
+
+Use `--selector` (the external argument) only for static elements on regular pages where you want a pointer label alongside the outline. For ephemeral UI (dropdowns, menus), always use the JS-inline approach — `--selector` appends a DOM node which closes the overlay before the screenshot fires.
+
+---
+
 ## Checking an element's attribute value (href, text, state)
 
 Always **find the element first, then read its value**. Never search only for elements that already carry the target value — the element exists regardless of its current state, and a selector that requires the new value returns null when the old value is present, producing a misleading "not found" failure.
@@ -92,3 +108,6 @@ Always **find the element first, then read its value**. Never search only for el
 - **Exclusion**: verify via mechanism active + count < baseline — not per-item attribute checks.
 - **Filter logic**: verify empirically — if combined > individual, the UI uses OR not AND.
 - **Screenshot naming**: `--screenshot verify-<description>` (kept); `--screenshot inspect-<description>` (discarded on collect).
+- **Assert the invariant, not the implementation.** Before writing JS, ask: "Is this testing what the TC is fundamentally about, or just a side effect?" Two patterns:
+  - *Accessibility / reachability*: assert absence of error — `!body.includes('500')`, `!body.includes('Application is not available')`. Do NOT check for specific UI components (editor pane, console window, IDE layout) — these vary by image and config and will fail for reasons unrelated to the feature.
+  - *Content / format*: assert the specific observable fact — URL pattern, field value, element presence — only when the content itself IS what is being verified.

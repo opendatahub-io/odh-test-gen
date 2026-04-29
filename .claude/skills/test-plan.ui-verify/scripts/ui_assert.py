@@ -99,63 +99,81 @@ def update_log(tc_id: str, what: str, expected: str, result: str, detail: str,
     TC_LOG.write_text(json.dumps(log, indent=2))
 
 
-def _click_before(page, description: str) -> bool:
-    """Click an element to open ephemeral UI state (dropdown, menu, accordion) before asserting.
+def _wait_animations(page) -> None:
+    """Wait for all non-infinite CSS animations/transitions to finish.
 
-    Mirrors the tier strategy of do_click in ui_interact.py so behaviour is consistent.
-    Returns True to continue with the assertion, False if the click caused unintended
-    navigation (caller should return exit 2 / WRONG_PAGE in that case).
-
-    If the element is not found the function still returns True — the JS assertion
-    that follows will FAIL with the real reason, which is the correct logged outcome.
+    Adapts to actual animation duration — not a fixed delay. Infinite animations
+    (spinners, pulses) are excluded. Uses Playwright's page-default timeout as
+    safety net; falls through silently on timeout.
     """
-    from urllib.parse import urlparse
-    url_before = page.url
-    clicked = False
+    try:
+        page.wait_for_function(
+            "() => !document.getAnimations().filter("
+            "  a => a.playState === 'running'"
+            "    && a.effect && a.effect.getTiming().iterations !== Infinity"
+            ").length"
+        )
+    except Exception:
+        pass
 
-    # Tier 1: Playwright role-based — exact match first, then partial (same order as do_click)
+
+def _click_element(page, description: str) -> str | None:
+    """Try to click an element matching description. Returns a label string on success, None otherwise.
+
+    Tier 1: Playwright role-based (exact then partial).
+    Tier 2: JS text / aria-label scan.
+    """
     for exact in (True, False):
-        if clicked:
-            break
         for role in ("button", "link", "menuitem", "tab"):
             try:
                 loc = page.get_by_role(role, name=description, exact=exact)
                 if loc.count() > 0:
                     loc.first.scroll_into_view_if_needed()
                     loc.first.click()
-                    page.wait_for_load_state("domcontentloaded")
                     label = "exact" if exact else "partial"
-                    print(f"  --click-before: ✅ [role={role} {label}={description!r}]", flush=True)
-                    clicked = True
-                    break
+                    return f"role={role} {label}={description!r}"
             except Exception:
                 continue
 
-    # Tier 2: JS text / aria-label scan (same as do_click tier 3)
-    if not clicked:
-        try:
-            match = page.evaluate(
-                """(desc) => {
-                    const els = [...document.querySelectorAll(
-                        'button,a,[role=button],[role=menuitem],[role=tab]'
-                    )];
-                    const t = e => (e.textContent || '').trim();
-                    const el = els.find(e => t(e) === desc || e.getAttribute('aria-label') === desc)
-                              || els.find(e => t(e).startsWith(desc + ' ') || t(e).startsWith(desc + '\\n'));
-                    if (!el) return null;
-                    el.scrollIntoView({block: 'center'}); el.click();
-                    return (t(el) || el.getAttribute('aria-label') || '').slice(0, 60);
-                }""",
-                description,
-            )
-        except Exception:
-            match = None
+    try:
+        match = page.evaluate(
+            """(desc) => {
+                const els = [...document.querySelectorAll(
+                    'button,a,[role=button],[role=menuitem],[role=tab]'
+                )];
+                const t = e => (e.textContent || '').trim();
+                const el = els.find(e => t(e) === desc || e.getAttribute('aria-label') === desc)
+                          || els.find(e => t(e).startsWith(desc + ' ') || t(e).startsWith(desc + '\\n'));
+                if (!el) return null;
+                el.scrollIntoView({block: 'center'}); el.click();
+                return (t(el) || el.getAttribute('aria-label') || '').slice(0, 60);
+            }""",
+            description,
+        )
         if match:
-            page.wait_for_load_state("domcontentloaded")
-            print(f"  --click-before: ✅ [js→ {match!r}]", flush=True)
-            clicked = True
+            return f"js→ {match!r}"
+    except Exception:
+        pass
 
-    if not clicked:
+    return None
+
+
+def _click_before(page, description: str) -> bool:
+    """Click an element to open ephemeral UI state (dropdown, menu, accordion) before asserting.
+
+    Returns True to continue with the assertion, False if the click caused unintended
+    navigation (caller should return exit 2 / WRONG_PAGE in that case).
+    If the element is not found the function still returns True — the JS assertion
+    that follows will FAIL with the real reason, which is the correct logged outcome.
+    """
+    from urllib.parse import urlparse
+    url_before = page.url
+
+    label = _click_element(page, description)
+    if label:
+        _wait_animations(page)
+        print(f"  --click-before: ✅ [{label}]", flush=True)
+    else:
         print(
             f"  --click-before: ⚠️  '{description}' not found — "
             f"proceeding; assertion will report the actual failure",
@@ -241,24 +259,11 @@ def main() -> int:
             print(f"WRONG_PAGE: 404 or empty at {page.url}", flush=True)
             return 2
 
-        # 3. Click-before — open ephemeral UI state (dropdown/menu) before asserting.
-        #    Runs before the banner so the click is not confused by overlay injection.
-        if args.click_before:
-            if not _click_before(page, args.click_before):
-                print(f"WRONG_PAGE: --click-before caused navigation to {page.url}", flush=True)
-                return 2
-
-        # 3b. URL pre-check — abort if the current page is not what the assertion expects.
-        #     Catches wrong-tab and redirect scenarios before they produce a false verdict.
-        if args.expected_url_contains and args.expected_url_contains not in page.url:
-            print(
-                f"WRONG_PAGE: expected URL containing {args.expected_url_contains!r}, "
-                f"got {page.url!r}",
-                flush=True,
-            )
-            return 2
-
-        # 4. Show blue "Checking" banner (cosmetic — failures are silenced)
+        # 3. Inject the banner BEFORE click-before so the dropdown opens into an already-
+        #    stable DOM. If the banner were appended after the dropdown opens, its
+        #    document.body.appendChild call would fire a DOM mutation that triggers the
+        #    dropdown's close handler. Injecting first means only style-attribute changes
+        #    happen while the dropdown is open — those don't trigger childList observers.
         safe_what = args.what.replace("'", " ").replace('"', " ")[:120]
         try:
             page.evaluate(
@@ -275,6 +280,22 @@ def main() -> int:
         except Exception:
             pass
 
+        # 4. Click-before — open ephemeral UI state (dropdown/menu) before asserting.
+        #    Banner is already in the DOM, so no further appendChild mutations will fire.
+        if args.click_before:
+            if not _click_before(page, args.click_before):
+                print(f"WRONG_PAGE: --click-before caused navigation to {page.url}", flush=True)
+                return 2
+
+        # 4b. URL pre-check — abort if the current page is not what the assertion expects.
+        if args.expected_url_contains and args.expected_url_contains not in page.url:
+            print(
+                f"WRONG_PAGE: expected URL containing {args.expected_url_contains!r}, "
+                f"got {page.url!r}",
+                flush=True,
+            )
+            return 2
+
         # 4. Hide banner, run assertion (with optional retry), restore banner.
         #    Banner stays hidden for the full retry window — prevents its text from
         #    appearing in innerText checks inside the JS assertion.
@@ -288,7 +309,9 @@ def main() -> int:
             # On retry with --click-before: re-click so a toggled-closed container
             # gets toggled open again before the JS re-runs.
             if _attempt > 0 and args.click_before:
-                _click_before(page, args.click_before)
+                lbl = _click_element(page, args.click_before)
+                if lbl:
+                    _wait_animations(page)
             try:
                 raw = page.evaluate(args.js)  # direct Python return — no stdout parsing!
             except Exception as e:

@@ -47,6 +47,8 @@ python3 .claude/skills/test-plan.ui-verify/scripts/ui_prepare.py \
 | `--target-url <url>` | Skip route auto-detection, use this URL |
 | `--refresh-map <path>` | Regenerate element-map.yaml from odh-dashboard source |
 | `--setup` | One-time credential setup wizard |
+| `--upgrade-phase <pre\|post>` | Upgrade testing: `pre` saves baseline on old cluster; `post` compares against baseline on new cluster |
+| `--baseline <session-dir>` | Explicit baseline for `--upgrade-phase post` — pin comparison to a specific prior session (e.g. the original working state when verifying a fix after a broken intermediate run) |
 
 ## Supporting files
 
@@ -59,7 +61,7 @@ python3 .claude/skills/test-plan.ui-verify/scripts/ui_prepare.py \
 | `scripts/ui_interact.py` | Element interaction: click, fill, goto, scroll, expand (auto-relogins on session expiry) |
 | `scripts/ui_assert.py` | Assertion runner: banner, screenshot, log, exit code; `--inspect` for diagnostic-only calls; `--click-before` to open ephemeral UI (dropdowns, menus) before asserting |
 | `scripts/ui_block.py` | Logs BLOCKED/INCOMPLETE verdict entries to the TC log |
-| `scripts/ui_report.py` | Generates `report.html` (visual, with screenshots) and `report.md` |
+| `scripts/ui_report.py` | Generates `report.html` + `report.md` per run; for upgrade post-runs also generates `upgrade-report.html` (FIXED/REGRESSION/STABLE comparison) with a `pre-session/` symlink to the baseline |
 | `scripts/github_utils.py` | GitHub API helpers: fetch TC files and metadata via `gh` |
 | `scripts/build_element_map.py` | Regenerates element-map.yaml from odh-dashboard source |
 
@@ -70,6 +72,11 @@ All results land in `.claude/skills/test-plan.ui-verify/results/<session>/`:
 - `report.md` — plain-text Markdown summary (same content, for GitHub / terminal)
 - `TC-*-verify-*.png` — highlighted verification screenshots (one per assertion)
 - `tc_log.json` — raw assertion data (verdict priority: FAIL > INCOMPLETE > BLOCKED > PASS)
+
+**Upgrade post-runs additionally produce:**
+- `upgrade-report.html` — side-by-side comparison: FIXED / REGRESSION / STABLE / STILL FAILING / POST-ONLY per TC; links to pre and post individual reports
+- `upgrade-report.md` — plain-text version of the comparison
+- `pre-session/` — symlink to the baseline session directory for easy navigation
 
 ---
 

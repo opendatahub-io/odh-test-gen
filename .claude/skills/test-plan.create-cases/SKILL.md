@@ -184,10 +184,12 @@ Process **one category at a time** from Section 5.2. For each category:
    status: Draft
    automation_status: Not Started
    last_updated: <today_date>
+   # upgrade_phase: pre|post|both   # see Step 3.4 — set for ANY TC whose expected results differ between upgrade states
    ---
    ```
 
    - `source_key`: use the value extracted from the test plan's frontmatter in Step 1
+   - If the test plan's Section 7.2 is non-trivial, evaluate `upgrade_phase` for every TC before finalising its frontmatter — including TC-UI-*, TC-E2E-*, and all other categories, not just TC-UPGRADE-*. The question is always the same: does this TC's expected behaviour differ between the old and new version? If yes, set the phase. Do not skip this evaluation for any TC.
    - Write the frontmatter directly — validation happens in Step 5.7
    - **Important**: In regeneration mode, files were already read in Step 2.5, so Edit/Write will work correctly
 
@@ -196,7 +198,33 @@ Process **one category at a time** from Section 5.2. For each category:
    - Each E2E test case should represent a complete user journey, not just a single endpoint call
    - Use `TC-E2E-<NUMBER>` naming convention (e.g., TC-E2E-001, TC-E2E-002)
 
+4. **Upgrade test cases (conditional)**: Read **Section 7.2 (Upgrade/Migration)** of the TestPlan.md. If Section 7.2 describes meaningful upgrade-specific behaviour (not just "Not Applicable" or a single sentence disclaimer), generate upgrade-aware TCs:
+
+   First, identify what kind of upgrade scenario this is — it determines the dominant phase:
+   - **Feature introducing an upgrade change** (new API, new route, new auth model): primarily `post` TCs for new behaviour, `pre` TCs for state that disappears after upgrade, `both` for regressions
+   - **Bug discovered during upgrade** (something that worked before upgrade now breaks): primarily `both` TCs — the goal is to establish a PASS baseline before upgrade and detect a REGRESSION after
+
+   Phase values and when to use them:
+   - **`upgrade_phase: pre`** — behaviour or state that only exists on the old version. Expected to FAIL or be N/A on the new version. Preconditions must state the source version.
+   - **`upgrade_phase: post`** — behaviour that only exists after upgrade (new feature, new resource, new route). Expected to FAIL on the old version. Preconditions must state the target version.
+   - **`upgrade_phase: both`** — behaviour that should work on both versions. Use for any TC that establishes a pre-upgrade baseline and validates the same behaviour post-upgrade. E2E TCs spanning the full upgrade journey also use `both` — even if their steps cross both versions, they need to run on both clusters. Always include at least one UI-capable TC with `both` so the pre-upgrade run has browser content to execute.
+   - **No `upgrade_phase`** — reserve for TCs that are genuinely unrelated to the upgrade scenario — TCs that would exist identically in a non-upgrade test plan. Within an upgrade-focused test plan, if a TC's expected results should be the same on both versions, use `upgrade_phase: both` (not no phase) to make its role in the regression suite explicit. "No phase" and `both` are functionally equivalent in filtering, but `both` signals intent.
+
+   **Apply `upgrade_phase` based on what the TC tests, not which category it belongs to.** Any TC in any category (TC-UI-*, TC-E2E-*, etc.) whose expected results or preconditions differ between versions must be tagged. The question is: "Would this TC pass on the old version AND the new version?" If yes to both → `both`. If only new → `post`. If only old → `pre`.
+
+   Add upgrade TCs to their own **"Upgrade Testing"** section in INDEX.md.
+
 This category-by-category approach ensures cross-category awareness (no duplicate coverage) while keeping each batch focused.
+
+**Expected Results quality:** Each Expected Result must be an observable fact that directly confirms the test objective. Avoid vague conclusions ("works correctly", "renders successfully"). Name the specific page state, URL pattern, response code, element, or resource field.
+
+Before writing each assertion, ask: **"Is this testing what the TC is fundamentally about, or just a side effect?"** Two patterns follow from this:
+
+- **Accessibility / reachability tests** (does this URL work? does this link open?): assert the *absence of error* — "page does not contain '500 Internal Server Error'", "response is HTTP 200", "page does not show 'Application is not available'". Do **not** assert presence of specific UI components (IDE editor pane, console window, specific layout element) — these vary by configuration, workbench image, and product version and will cause failures unrelated to the feature under test.
+
+- **Content / format tests** (does this show the right value? did something change?): assert the *specific observable fact* — "URL contains hostname pattern X", "field value equals Y", "element Z is visible". Use this only when the content itself IS what is being verified.
+
+A test that FAILs for the wrong reason is worse than no test at all. When in doubt, prefer the narrower assertion.
 
 **Anti-hallucination rules:**
 - Do NOT invent requirements not present in the test plan
@@ -205,7 +233,7 @@ This category-by-category approach ensures cross-category awareness (no duplicat
 
 ### Step 4: Generate Index
 
-After all categories are complete:
+After all categories are complete (including upgrade TCs if generated):
 
 1. Create `<feature_dir>/test_cases/` directory if it doesn't already exist: `mkdir -p <feature_dir>/test_cases`
 2. Each test case file must be **self-contained** — a tester should be able to execute it without reading the test plan
