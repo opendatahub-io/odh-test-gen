@@ -769,6 +769,300 @@ def generate_md(tc_log: dict, ctx: dict) -> str:
     return "\n".join(lines)
 
 
+# ── Upgrade comparison report ─────────────────────────────────────────────────
+
+_OUTCOME_COLOR = {
+    "FIXED":        ("#1a7f37", "#dafbe1"),   # green
+    "REGRESSION":   ("#cf222e", "#ffebe9"),   # red
+    "STABLE-PASS":  ("#656d76", "#f6f8fa"),   # grey
+    "STABLE-BLOCK": ("#bc4c00", "#fff1e5"),   # orange
+    "CHANGED":      ("#6639ba", "#fbefff"),   # purple
+    "POST-ONLY":    ("#0550ae", "#dbeafe"),   # blue — ran in post but had no pre baseline
+}
+_OUTCOME_LABEL = {
+    "FIXED":        "✅ FIXED",
+    "REGRESSION":   "❌ REGRESSION",
+    "STABLE-PASS":  "➡ STABLE",
+    "STABLE-BLOCK": "⚠️ STILL FAILING",
+    "CHANGED":      "↕ CHANGED",
+    "POST-ONLY":    "🆕 POST-ONLY",
+}
+
+
+def _upgrade_outcome(pre_v: str, post_v: str) -> str:
+    """Classify the change between pre and post verdicts.
+
+    pre_v / post_v are verdict strings or '—' when the TC was not present
+    in that run (e.g. a post-only TC with upgrade_phase: post has no pre entry).
+    """
+    if pre_v == "—":
+        return "POST-ONLY"   # TC not in baseline — no comparison possible
+    if pre_v in ("FAIL", "BLOCKED", "INCOMPLETE") and post_v == "PASS":
+        return "FIXED"
+    if pre_v == "PASS" and post_v in ("FAIL", "INCOMPLETE"):
+        return "REGRESSION"
+    if pre_v == post_v == "PASS":
+        return "STABLE-PASS"
+    if pre_v in ("FAIL", "BLOCKED", "INCOMPLETE") and post_v in ("FAIL", "BLOCKED", "INCOMPLETE"):
+        return "STABLE-BLOCK"
+    return "CHANGED"
+
+
+def _collect_preconditions(pre_ctx: dict, post_ctx: dict) -> list[str]:
+    """Collect unique manual preconditions from all TCs across both runs."""
+    seen, result = set(), []
+    for ctx in (pre_ctx, post_ctx):
+        for tc in ctx.get("test_cases", []):
+            for pre in tc.get("preconditions", []):
+                if pre not in seen:
+                    seen.add(pre)
+                    result.append(pre)
+    return result
+
+
+def _upgrade_cleanup_html(pre_ctx: dict, post_ctx: dict) -> str:
+    """HTML cleanup reminder section for the upgrade report."""
+    preconditions = _collect_preconditions(pre_ctx, post_ctx)
+    if not preconditions:
+        return ""
+    items = "".join(f'<li style="margin:4px 0;">{_esc(p)}</li>' for p in preconditions)
+    return (
+        '<div style="background:#fff;border:1px solid #d0d7de;border-radius:10px;'
+        'margin-top:16px;overflow:hidden;">'
+        '<div style="padding:11px 16px;font-size:0.82em;font-weight:600;color:#656d76;'
+        'background:#fffbf0;border-bottom:1px solid #d0d7de;text-transform:uppercase;'
+        'letter-spacing:0.06em;">🧹 Cleanup reminder</div>'
+        '<div style="padding:14px 18px;font-size:0.88em;">'
+        '<p style="margin:0 0 10px;color:#57606a;">Upgrade verification is complete. '
+        'The following resources were provisioned manually for this test and '
+        '<strong>were not cleaned up automatically</strong>. '
+        'Delete them when you no longer need the upgrade test environment:</p>'
+        f'<ul style="margin:0;padding-left:20px;color:#1f2328;">{items}</ul>'
+        '</div></div>'
+    )
+
+
+def _upgrade_cleanup_md(pre_ctx: dict, post_ctx: dict) -> list[str]:
+    """Markdown cleanup reminder lines for the upgrade report."""
+    preconditions = _collect_preconditions(pre_ctx, post_ctx)
+    if not preconditions:
+        return []
+    lines = [
+        "## 🧹 Cleanup Reminder",
+        "",
+        "Upgrade verification is complete. The following resources were provisioned "
+        "manually and **were not cleaned up automatically**. "
+        "Delete them when you no longer need the upgrade test environment:",
+        "",
+    ]
+    for p in preconditions:
+        lines.append(f"- {p}")
+    lines.append("")
+    return lines
+
+
+def generate_upgrade_html(pre_log: dict, post_log: dict,
+                          pre_ctx: dict, post_ctx: dict,
+                          session_dir: Path) -> str:
+    """Generate a side-by-side upgrade comparison report."""
+    feature    = post_ctx.get("feature", pre_ctx.get("feature", "unknown"))
+    pre_date   = _format_date(pre_ctx.get("prepared_at", ""))
+    post_date  = _format_date(post_ctx.get("prepared_at", ""))
+    pre_target = pre_ctx.get("target_url", "")
+    post_target= post_ctx.get("target_url", "")
+    source     = post_ctx.get("source", "")
+
+    # Build tc_meta from both contexts
+    tc_meta = {tc["id"]: tc for tc in pre_ctx.get("test_cases", [])}
+    tc_meta.update({tc["id"]: tc for tc in post_ctx.get("test_cases", [])})
+
+    # All TC IDs across both runs
+    all_ids = list(dict.fromkeys(list(pre_log.keys()) + list(post_log.keys())))
+
+    counts = {k: 0 for k in ("FIXED", "REGRESSION", "STABLE-PASS", "STABLE-BLOCK", "CHANGED", "POST-ONLY")}
+    rows = []
+    for tc_id in all_ids:
+        pre_e  = pre_log.get(tc_id, {})
+        post_e = post_log.get(tc_id, {})
+        pre_v  = pre_e.get("verdict", "—")
+        post_v = post_e.get("verdict", "—")
+        outcome = _upgrade_outcome(pre_v, post_v)
+        counts[outcome] = counts.get(outcome, 0) + 1
+
+        meta    = tc_meta.get(tc_id, {})
+        title   = _strip_tc_prefix(post_e.get("title", pre_e.get("title", tc_id)), tc_id)
+        if title == tc_id:
+            title = _strip_tc_prefix(meta.get("title", tc_id), tc_id)
+        priority = meta.get("priority", "")
+        up_phase = meta.get("upgrade_phase", "")
+
+        fg, bg = _OUTCOME_COLOR.get(outcome, ("#333", "#eee"))
+        label  = _OUTCOME_LABEL.get(outcome, outcome)
+        badge  = (f'<span style="display:inline-block;padding:2px 9px;border-radius:20px;'
+                  f'font-size:0.8em;font-weight:700;background:{bg};color:{fg};">{label}</span>')
+
+        open_attr = ' open' if outcome == "REGRESSION" else ""
+        phase_tag = (f'&nbsp;<span style="font-size:0.72em;background:#e8f4ff;'
+                     f'color:#0550ae;padding:1px 6px;border-radius:10px;">{up_phase}</span>'
+                     if up_phase else "")
+
+        rows.append(
+            f'<details{open_attr} style="background:#fff;border:1px solid #d0d7de;'
+            f'border-radius:8px;margin-bottom:8px;overflow:hidden;">'
+            f'<summary style="padding:11px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;">'
+            f'{badge}'
+            f'&nbsp;<span style="font-family:monospace;font-weight:700;">{_esc(tc_id)}</span>'
+            f'{_priority_badge(priority) if priority else ""}'
+            f'{phase_tag}'
+            f'&nbsp;<span style="font-weight:500;">{_esc(title)}</span>'
+            f'</summary>'
+            f'<div style="padding:12px 16px;border-top:1px solid #d0d7de;">'
+            f'<table style="width:100%;border-collapse:collapse;font-size:0.88em;">'
+            f'<thead><tr style="background:#f6f8fa;">'
+            f'<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #d0d7de;">Phase</th>'
+            f'<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #d0d7de;">Verdict</th>'
+            f'<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #d0d7de;">Detail</th>'
+            f'</tr></thead><tbody>'
+            f'<tr><td style="padding:8px 10px;border-bottom:1px solid #eaecef;">Pre-upgrade</td>'
+            f'<td style="padding:8px 10px;border-bottom:1px solid #eaecef;">{_badge(pre_v)}</td>'
+            f'<td style="padding:8px 10px;border-bottom:1px solid #eaecef;">'
+            f'{_esc(pre_e.get("blocked_reason","") or "")}' + "".join(
+                f'{_esc(a.get("detail",""))}<br>' for a in pre_e.get("assertions",[])
+                if a.get("result") in ("FAIL","BLOCKED")
+            ) + f'</td></tr>'
+            f'<tr><td style="padding:8px 10px;">Post-upgrade</td>'
+            f'<td style="padding:8px 10px;">{_badge(post_v)}</td>'
+            f'<td style="padding:8px 10px;">'
+            f'{_esc(post_e.get("blocked_reason","") or "")}' + "".join(
+                f'{_esc(a.get("detail",""))}<br>' for a in post_e.get("assertions",[])
+                if a.get("result") in ("FAIL","BLOCKED")
+            ) + f'</td></tr>'
+            f'</tbody></table>'
+            f'</div></details>'
+        )
+
+    # Summary bar
+    def _stat(label, key, bg, fg):
+        return (f'<div style="display:flex;flex-direction:column;align-items:center;'
+                f'padding:10px 18px;border-radius:8px;background:{bg};color:{fg};min-width:90px;">'
+                f'<span style="font-size:1.8em;font-weight:700;">{counts[key]}</span>'
+                f'<span style="font-size:0.72em;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">'
+                f'{label}</span></div>')
+
+    stats = (
+        _stat("✅ Fixed",       "FIXED",        "#dafbe1", "#1a7f37") +
+        _stat("❌ Regression",  "REGRESSION",   "#ffebe9", "#cf222e") +
+        _stat("➡ Stable",      "STABLE-PASS",  "#f6f8fa", "#656d76") +
+        _stat("⚠ Still failing","STABLE-BLOCK","#fff1e5", "#bc4c00") +
+        _stat("↕ Changed",     "CHANGED",      "#fbefff", "#6639ba") +
+        _stat("🆕 Post-only",  "POST-ONLY",    "#dbeafe", "#0550ae")
+    )
+
+    source_html = _format_source_html(source) if source else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upgrade Report — {_esc(feature)}</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px; line-height: 1.6; color: #1f2328;
+            background: #f6f8fa; padding: 24px 16px; }}
+    .page {{ max-width: 960px; margin: 0 auto; }}
+    .header {{ background: #fff; border: 1px solid #d0d7de; border-radius: 10px;
+               padding: 20px 24px; margin-bottom: 14px; }}
+    .header h1 {{ font-size: 1.3em; }}
+    .meta {{ color: #656d76; font-size: 0.85em; margin-top: 6px; }}
+    .meta a {{ color: #0969da; text-decoration: none; }}
+    .stats {{ display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }}
+    details > summary {{ user-select: none; list-style: none; }}
+    details > summary::-webkit-details-marker {{ display: none; }}
+    footer {{ text-align: center; color: #8c959f; font-size: 0.78em; margin-top: 18px; }}
+  </style>
+</head>
+<body><div class="page">
+  <div class="header">
+    <h1>⬆ Upgrade Verification — {_esc(feature)}</h1>
+    <div class="meta">
+      Pre-upgrade: <strong>{pre_date}</strong> · {_esc(pre_target)}<br>
+      Post-upgrade: <strong>{post_date}</strong> · {_esc(post_target)}
+      {"<br>Source: " + source_html if source_html else ""}
+    </div>
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+      <a href="./pre-session/report.html" target="_blank"
+         style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;
+                border-radius:6px;background:#f6f8fa;border:1px solid #d0d7de;
+                color:#1f2328;text-decoration:none;font-size:0.85em;font-weight:500;">
+        📋 Pre-upgrade report
+      </a>
+      <a href="./report.html" target="_blank"
+         style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;
+                border-radius:6px;background:#f6f8fa;border:1px solid #d0d7de;
+                color:#1f2328;text-decoration:none;font-size:0.85em;font-weight:500;">
+        📋 Post-upgrade report
+      </a>
+    </div>
+    <div class="stats">{stats}</div>
+  </div>
+  {"".join(rows)}
+  {_upgrade_cleanup_html(pre_ctx, post_ctx)}
+  <footer>Generated by test-plan.ui-verify upgrade comparison</footer>
+</div></body></html>"""
+
+
+def generate_upgrade_md(pre_log: dict, post_log: dict,
+                        pre_ctx: dict, post_ctx: dict) -> str:
+    """Plain-text upgrade comparison summary."""
+    feature   = post_ctx.get("feature", pre_ctx.get("feature", "unknown"))
+    pre_date  = _format_date(pre_ctx.get("prepared_at", ""))
+    post_date = _format_date(post_ctx.get("prepared_at", ""))
+    tc_meta   = {tc["id"]: tc for tc in pre_ctx.get("test_cases", [])}
+    tc_meta.update({tc["id"]: tc for tc in post_ctx.get("test_cases", [])})
+
+    all_ids = list(dict.fromkeys(list(pre_log.keys()) + list(post_log.keys())))
+    counts  = {k: 0 for k in ("FIXED", "REGRESSION", "STABLE-PASS", "STABLE-BLOCK", "CHANGED", "POST-ONLY")}
+    tc_rows = []
+
+    for tc_id in all_ids:
+        pre_v  = pre_log.get(tc_id, {}).get("verdict", "—")
+        post_v = post_log.get(tc_id, {}).get("verdict", "—")
+        outcome = _upgrade_outcome(pre_v, post_v)
+        counts[outcome] = counts.get(outcome, 0) + 1
+        label = _OUTCOME_LABEL.get(outcome, outcome)
+        title = _strip_tc_prefix(tc_meta.get(tc_id, {}).get("title", tc_id), tc_id)
+        tc_rows.append(f"| `{tc_id}` | {label} | {_VERDICT_EMOJI.get(pre_v, pre_v)} {pre_v} | {_VERDICT_EMOJI.get(post_v, post_v)} {post_v} | {title} |")
+
+    lines = [
+        f"# Upgrade Verification — {feature}",
+        "",
+        f"[📋 Pre-upgrade report](./pre-session/report.md) &nbsp;·&nbsp; [📋 Post-upgrade report](./report.md)",
+        "",
+        f"| | |",
+        f"|---|---|",
+        f"| **Pre-upgrade** | {pre_date} |",
+        f"| **Post-upgrade** | {post_date} |",
+        "",
+        "## Summary",
+        "",
+        "| Outcome | Count |",
+        "|---------|------:|",
+    ]
+    for k, lbl in _OUTCOME_LABEL.items():
+        lines.append(f"| {lbl} | {counts[k]} |")
+    lines += [
+        "",
+        "## Results",
+        "",
+        "| TC | Outcome | Pre | Post | Title |",
+        "|----|---------|-----|------|-------|",
+    ] + tc_rows + [""] + _upgrade_cleanup_md(pre_ctx, post_ctx)
+
+    return "\n".join(lines)
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -806,6 +1100,37 @@ def main() -> None:
     print(f"  HTML report : {html_path}")
     print(f"  MD report   : {md_path}")
     print(f"  Open in browser: open '{html_path}'")
+
+    # ── Upgrade comparison report (post runs only) ────────────────────────────
+    baseline_dir = ctx.get("upgrade_baseline_dir", "")
+    if baseline_dir:
+        pre_session   = Path(baseline_dir)
+        pre_log_path  = pre_session / "tc_log.json"
+        pre_ctx_path  = pre_session / "ui_context.json"
+        if pre_log_path.exists():
+            pre_log = json.loads(pre_log_path.read_text(encoding="utf-8"))
+            pre_ctx = json.loads(pre_ctx_path.read_text(encoding="utf-8")) if pre_ctx_path.exists() else {}
+            ug_html = generate_upgrade_html(pre_log, tc_log, pre_ctx, ctx, session)
+            ug_md   = generate_upgrade_md(pre_log, tc_log, pre_ctx, ctx)
+            ug_html_path = session / "upgrade-report.html"
+            ug_md_path   = session / "upgrade-report.md"
+            ug_html_path.write_text(ug_html, encoding="utf-8")
+            ug_md_path.write_text(ug_md,   encoding="utf-8")
+
+            # Symlink pre-session inside post session so both are navigable together
+            symlink = session / "pre-session"
+            try:
+                if symlink.exists() or symlink.is_symlink():
+                    symlink.unlink()
+                symlink.symlink_to(pre_session.resolve())
+                print(f"  ⬆  Pre-session  : {symlink} → {pre_session.resolve()}")
+            except Exception as e:
+                print(f"  ⚠️  Could not create pre-session symlink: {e}")
+
+            print(f"\n  ⬆  Upgrade report: {ug_html_path}")
+            print(f"  Open in browser: open '{ug_html_path}'")
+        else:
+            print(f"\n  ⚠️  Baseline tc_log.json not found at {pre_log_path} — skipping upgrade report")
 
 
 if __name__ == "__main__":
