@@ -51,6 +51,8 @@ python3 <SKILL_DIR>/scripts/ui_interact.py wait [ms]
 
 Complete all TC steps before asserting any Expected Result.
 
+**`--in-row <text>`**: when a page has multiple rows each containing the same button or link (e.g. a table where every row has an action button with the same label), use `--in-row` to scope the click to the row that contains the given text — avoiding clicking the first match when you need a specific row.
+
 **`click` not-found semantics:** Exit 1 means the target was absent, printed as `~ click: '...' — not found`. It is not an error; the caller decides whether absence is acceptable. Use this to exhaust pagination: call `click "Load more"` in a loop until exit 1.
 
 **`expand`** — two modes:

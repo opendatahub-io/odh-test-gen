@@ -112,9 +112,41 @@ def _relogin(page, ctx: dict) -> bool:
 
 # ── Actions ───────────────────────────────────────────────────────────────────
 
-def do_click(description: str, section: str | None) -> int:
+def do_click(description: str, section: str | None, in_row: str | None = None) -> int:
     pw, browser, page, ctx = get_page()
     try:
+        # 0. Row-scoped click — when --in-row is set, find the row/item containing that
+        #    text and click the target element within it. Handles tables where multiple
+        #    rows share the same button text (e.g. "Stop", "Delete", "Edit").
+        if in_row:
+            try:
+                match = page.evaluate(
+                    """([desc, rowText]) => {
+                        const containers = [...document.querySelectorAll(
+                            'tr, li, [role="row"], [role="listitem"], .pf-v5-c-table__tr, .pf-v6-c-table__tr'
+                        )];
+                        const row = containers.find(c => c.textContent.includes(rowText));
+                        if (!row) return null;
+                        const els = [...row.querySelectorAll(
+                            'button,a,input,[role=button],[role=menuitem],[role=checkbox]'
+                        )];
+                        const t = e => (e.textContent || '').trim();
+                        const el = els.find(e => t(e) === desc || e.getAttribute('aria-label') === desc)
+                                  || els.find(e => t(e).startsWith(desc));
+                        if (!el) return null;
+                        el.scrollIntoView({block:'center'}); el.click();
+                        return t(el) || el.getAttribute('aria-label') || desc;
+                    }""",
+                    [description, in_row],
+                )
+            except Exception:
+                match = None
+            if match:
+                print(f"✅ click [in-row={in_row!r} → {match!r}]")
+                return 0
+            print(f"~ click: '{description}' in row '{in_row}' — not found")
+            return 1
+
         # 1. Element map
         sel = find_selector(description, section)
         if sel:
@@ -463,6 +495,10 @@ def main():
     parser.add_argument("action", choices=["click", "fill", "goto", "wait", "scroll", "expand"])
     parser.add_argument("args", nargs="*")
     parser.add_argument("--section",     default=None)
+    parser.add_argument("--in-row",      default=None,
+                        help="Scope a click to the table row or list item that contains "
+                             "this text. Use when multiple rows have the same button "
+                             "(e.g. 'Stop') and you need to target a specific one.")
     parser.add_argument("--press-enter", action="store_true")
     opts = parser.parse_args()
 
@@ -474,7 +510,7 @@ def main():
         )
 
     if opts.action == "click":
-        sys.exit(do_click(opts.args[0], opts.section))
+        sys.exit(do_click(opts.args[0], opts.section, opts.in_row))
     elif opts.action == "fill":
         sys.exit(do_fill(opts.args[0], opts.args[1], opts.section, opts.press_enter))
     elif opts.action == "goto":
