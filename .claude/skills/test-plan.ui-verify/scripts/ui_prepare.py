@@ -59,6 +59,30 @@ def run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+def _load_tv(upgrade_phase: str = "") -> dict:
+    """Load test-variables.yml and merge upgrade_clusters.<phase> profile if present.
+
+    The upgrade_clusters.<phase> section overrides only the keys it specifies;
+    everything else inherits from the top-level defaults. This allows a single
+    test-variables.yml to hold both cluster configs without editing between runs.
+    """
+    if not TV_FILE.exists():
+        return {}
+    tv = yaml.safe_load(TV_FILE.read_text()) or {}
+    if not upgrade_phase:
+        return tv
+    profile = (tv.get("upgrade_clusters") or {}).get(upgrade_phase, {})
+    if not profile:
+        return tv
+    merged = dict(tv)
+    for key, val in profile.items():
+        if key == "admin_user" and isinstance(val, dict) and isinstance(merged.get("admin_user"), dict):
+            merged["admin_user"] = {**merged["admin_user"], **val}
+        else:
+            merged[key] = val
+    return merged
+
+
 def fail(msg):
     print(f"\n❌ {msg}", file=sys.stderr)
     sys.exit(1)
@@ -255,6 +279,7 @@ def phase1_load_tcs(args):
                 "notes":            data.get("body", ""),
                 "has_ui_steps":     _is_ui_test(steps),
                 "step_count":       len(steps),
+                "upgrade_phase":    data.get("upgrade_phase", ""),
             })
 
     plan = {
@@ -263,6 +288,18 @@ def phase1_load_tcs(args):
         "test_cases": test_cases,
     }
     tcs = plan.get("test_cases", [])
+
+    # Filter by upgrade phase when --upgrade-phase is set.
+    # pre: include TCs with upgrade_phase "pre", "both", or unset (regressions always run)
+    # post: include TCs with upgrade_phase "post", "both", or unset
+    if getattr(args, "upgrade_phase", ""):
+        phase = args.upgrade_phase
+        tcs = [tc for tc in tcs if tc.get("upgrade_phase", "") in (phase, "both", "")]
+        plan["test_cases"] = tcs
+        if phase == "pre":
+            print(f"\n  ⬆  Upgrade mode — PRE-UPGRADE baseline run (phase: pre)")
+        else:
+            print(f"\n  ⬆  Upgrade mode — POST-UPGRADE verification run (phase: post)")
 
     print(f"\n  Feature:  {plan.get('feature', '?')}")
     print(f"  Strategy: {plan.get('strat_key', '?')}")
@@ -384,9 +421,9 @@ def phase3_url(component_cfg, args):
         print(f"  Using ODH_QA_TARGET_URL: {env_url}")
         return env_url
 
-    # 3. test-variables.yml target_url
+    # 3. test-variables.yml target_url (merged with upgrade_clusters profile if set)
     if TV_FILE.exists():
-        tv = yaml.safe_load(TV_FILE.read_text()) or {}
+        tv = _load_tv(getattr(args, "upgrade_phase", ""))
         tv_url = tv.get("target_url", "")
         if tv_url and "example.com" not in tv_url:
             print(f"  Using target_url from test-variables.yml: {tv_url}")
@@ -453,7 +490,7 @@ def phase4_credentials(cluster_api, args):
     # ── Priority 2: test-variables.yml ───────────────────────────────────────
     tv = {}
     if TV_FILE.exists():
-        tv = yaml.safe_load(TV_FILE.read_text()) or {}
+        tv = _load_tv(getattr(args, "upgrade_phase", ""))
         print(f"  Reading: {TV_FILE}")
     else:
         # Only fail here if env vars are also missing — CI may not need the file
@@ -493,7 +530,11 @@ def phase4_credentials(cluster_api, args):
     PLACEHOLDER = "your-password-here"
 
     if not cluster_api:
-        _tv_field_error("cluster_api", "e.g. https://api.my-cluster.example.com:6443")
+        fail(
+            "Could not determine cluster API URL.\n"
+            "  Tried: target_url derivation (apps.X → api.X), oc config, ODH_QA_CLUSTER_API env.\n"
+            "  Make sure you are logged in via 'oc login' or set ODH_QA_CLUSTER_API."
+        )
 
     if not username:
         _tv_field_error("admin_user.username", "e.g. ldap-admin1")
@@ -564,7 +605,7 @@ def phase5_snapshot(oc_available):
 
 # ── Phase 6: prerequisite setup ───────────────────────────────────────────────
 
-def phase6_prerequisites(plan, oc_available):
+def phase6_prerequisites(plan, oc_available, upgrade_phase=""):
     section("Phase 6: Prerequisite Setup")
 
     if not plan:
@@ -581,21 +622,24 @@ def phase6_prerequisites(plan, oc_available):
         print("  No cluster prerequisites required.")
         return
 
-    print(f"  Preconditions found ({len(seen)}):")
-    for p in seen:
-        print(f"    - {p}")
-
     if not oc_available:
         print("  ⚠️  oc not available — prerequisites must be created manually before continuing.")
         input("  Press Enter when prerequisites are ready, or Ctrl+C to abort: ")
         return
 
     # Only create resources for well-known types we can automate
-    # (others are handled by Claude during TC execution)
+    # (others require manual setup and will be flagged to the user)
     suffix = str(int(time.time()))[-6:]
+    manual = []
     for pre in seen:
         pl = pre.lower()
-        if "openshift project" in pl or "namespace" in pl:
+        # Only auto-create a project for generic preconditions ("a new project",
+        # "fresh namespace"). Skip when the precondition names a specific namespace
+        # (backtick-quoted or otherwise) — that namespace must be pre-provisioned.
+        names_specific = "`" in pre or any(
+            kw in pl for kw in ("in namespace", "in project", "namespace `", "project `")
+        )
+        if ("openshift project" in pl or "namespace" in pl) and not names_specific:
             name = f"qa-uiv-{suffix}"
             r = run(["oc", "new-project", name])
             if r.returncode == 0:
@@ -604,6 +648,26 @@ def phase6_prerequisites(plan, oc_available):
                     f.write(f"project: {name}\n")
             else:
                 print(f"  ⚠️  Could not create project: {r.stderr.strip()}")
+        else:
+            manual.append(pre)
+
+    if manual:
+        print()
+        print("  ┌─────────────────────────────────────────────────────┐")
+        print("  │  ⚠️  MANUAL SETUP REQUIRED before proceeding         │")
+        print("  └─────────────────────────────────────────────────────┘")
+        for pre in manual:
+            print(f"    • {pre}")
+        if upgrade_phase:
+            print()
+            print("  ℹ️  Upgrade test: resources you create for this test will NOT")
+            print("     be cleaned up automatically — you need them to persist")
+            print("     through the upgrade cycle. Delete them manually when done.")
+        print()
+        ans = input("  Confirm all of the above are ready? [y/N]: ").strip().lower()
+        if ans != "y":
+            print("  Aborted — set up the prerequisites and re-run.")
+            sys.exit(0)
 
 
 # ── Session setup ─────────────────────────────────────────────────────────────
@@ -758,6 +822,14 @@ def main():
     parser.add_argument("--priority", default="",
                         help="Filter by priority: P0, P1, P2. Default: all priorities.")
     parser.add_argument("--setup",          action="store_true")
+    parser.add_argument("--upgrade-phase",  choices=["pre", "post"], default="",
+                        help="Upgrade testing mode. 'pre': run pre-upgrade TCs and save baseline. "
+                             "'post': run post-upgrade TCs and generate comparison report against baseline.")
+    parser.add_argument("--baseline",        metavar="SESSION_DIR", default="",
+                        help="Explicit baseline session directory for --upgrade-phase post. "
+                             "Overrides the auto-detected upgrade-baseline.json pointer. "
+                             "Use to compare a post run against any prior session (e.g. the original "
+                             "2.x PASS state when verifying a fix after a broken intermediate state).")
     parser.add_argument("--refresh-map",    metavar="PATH",
                         help="Regenerate element-map.yaml from the given odh-dashboard source path, then exit. "
                              "Example: --refresh-map /path/to/odh-dashboard")
@@ -778,6 +850,16 @@ def main():
 
     print("\n🚀 test-plan.ui-verify — preparation phase")
 
+    # When --baseline is set and no --tc filter was given, automatically use
+    # the same TCs that were run in the baseline so the comparison is consistent.
+    if args.baseline and not args.tc:
+        _bl_log = Path(args.baseline) / "tc_log.json"
+        if _bl_log.exists():
+            _bl_ids = list(json.loads(_bl_log.read_text()).keys())
+            if _bl_ids:
+                args.tc = ",".join(_bl_ids)
+                print(f"  ℹ️  Auto-selected TCs from baseline: {args.tc}")
+
     info        = phase0_preflight()
     plan        = phase1_load_tcs(args)
     component, cfg = phase2_component(plan, args)
@@ -785,13 +867,13 @@ def main():
     cluster_api = os.environ.get("ODH_QA_CLUSTER_API", "")
     creds       = phase4_credentials(cluster_api, args)
     pre_projects = phase5_snapshot(info["oc_available"])
-    phase6_prerequisites(plan, info["oc_available"])
+    phase6_prerequisites(plan, info["oc_available"], args.upgrade_phase)
 
     feature_name = (plan or {}).get("feature", "session")
     session_dir  = setup_session(feature_name)
 
     # Phase 7: Launch persistent browser and log in
-    tv = yaml.safe_load(TV_FILE.read_text()) if TV_FILE.exists() else {}
+    tv = _load_tv(getattr(args, "upgrade_phase", "")) if TV_FILE.exists() else {}
     browser_info = launch_browser(target_url, tv)
 
     ctx = {
@@ -817,7 +899,37 @@ def main():
         "browser_cdp":   browser_info["browser_cdp"],
         "browser_pid":   browser_info["browser_pid"],
         "prepared_at":   time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "upgrade_phase": args.upgrade_phase or "",
+        "upgrade_baseline_dir": "",  # filled below for post runs
     }
+
+    # ── Upgrade baseline: save (pre) or load (post) ───────────────────────────
+    _baseline_file = SKILL_DIR / ".tmp" / "upgrade-baseline.json"
+
+    if args.upgrade_phase == "pre":
+        _baseline_file.parent.mkdir(parents=True, exist_ok=True)
+        _baseline_file.write_text(json.dumps({
+            "session_dir": session_dir,
+            "feature":     feature_name,
+            "prepared_at": ctx["prepared_at"],
+        }, indent=2))
+        print(f"\n  📌 Baseline saved → {_baseline_file}")
+
+    elif args.upgrade_phase == "post":
+        if args.baseline:
+            # Explicit override — use as-is (supports 3-phase: always compare against phase 1)
+            ctx["upgrade_baseline_dir"] = str(Path(args.baseline).resolve())
+            print(f"\n  📌 Baseline (explicit) → {ctx['upgrade_baseline_dir']}")
+        elif _baseline_file.exists():
+            baseline = json.loads(_baseline_file.read_text())
+            ctx["upgrade_baseline_dir"] = baseline.get("session_dir", "")
+            print(f"\n  📌 Baseline found  → {ctx['upgrade_baseline_dir']}")
+            print(f"       (from pre run at {baseline.get('prepared_at', '?')})")
+        else:
+            print(f"\n  ⚠️  No baseline found at {_baseline_file}")
+            print("     Run with --upgrade-phase pre on the old cluster first,")
+            print("     or pass --baseline <session-dir> to compare explicitly.")
+
     write_context(ctx)
 
     print(f"""
@@ -833,7 +945,7 @@ Now run in Claude Code:
 
    /test-plan.ui-verify
 {'='*60}
-""")
+{(chr(10) + '  ⬆  After running /test-plan.ui-verify, upgrade the cluster then run:' + chr(10) + '     python3 ui_prepare.py --test-plan-pr <same-url> --upgrade-phase post' + chr(10)) if args.upgrade_phase == 'pre' else ''}""")
 
     # Launch Claude Code interactively. The user types /test-plan.ui-verify to start.
     # subprocess.run (not os.execlp) keeps this process alive so atexit can
