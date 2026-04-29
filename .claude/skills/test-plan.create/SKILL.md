@@ -106,14 +106,10 @@ If the MCP tool **is available**, proceed to Step 0.3.
 
 5. **Validate against skill repository** (unless `FORCE_OUTPUT_DIR=true`):
    ```bash
-   # Export CLAUDE_SKILL_DIR so functions in the script can use it
-   export CLAUDE_SKILL_DIR
-
-   # Load validation utilities (via symlink)
-   source ${CLAUDE_SKILL_DIR}/scripts/skill_repo_guard.sh
-
    # Validate path is not in skill repo
-   validate_local_path "$target_dir" "$FORCE_OUTPUT_DIR" || exit 1
+   export CLAUDE_SKILL_DIR
+   force_flag=$([ "$FORCE_OUTPUT_DIR" = "true" ] && echo "--force" || echo "")
+   uv run python ${CLAUDE_SKILL_DIR}/scripts/repo.py validate-local-path "$target_dir" $force_flag || exit 1
    ```
 
 6. **Ask to save preference** via AskUserQuestion (unless using `--output-dir`):
@@ -203,8 +199,11 @@ fi
 ```
 
 **Then set frontmatter:**
+
+**IMPORTANT**: Run Python scripts from the test-plan repo directory (where pyproject.toml is). Do NOT `cd` to the output directory before running scripts — use absolute paths for file arguments.
+
 ```bash
-uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <feature_name>/TestPlan.md \
+uv run python ${CLAUDE_SKILL_DIR}/scripts/frontmatter.py set <absolute_path_to_output_dir>/<feature_name>/TestPlan.md \
     feature="<feature_name>" \
     source_key=<JIRA_KEY> \
     source_type=$SOURCE_TYPE \
@@ -284,7 +283,13 @@ The reviewer handles auto-revision internally (up to 2 cycles) and writes `<feat
 **Handle the review output:**
 
 1. **Read the verdict** from `<feature_name>/TestPlanReview.md` frontmatter
-2. **Auto-fix** (if any): Apply clearly correct improvements suggested by the reviewer (e.g., consistency fixes, missing entries in Section 10.2, generic priority definitions that should be feature-specific). Edit the TestPlan.md directly using the Edit tool.
+2. **Auto-fix** (if any): Apply clearly correct improvements suggested by the reviewer with these constraints:
+   - Consistency fixes (e.g., missing entries in Section 10.2 that are in Section 4)
+   - Generic priority definitions that should be feature-specific (when the specific language is in the strategy)
+   - **NEVER invent resolution paths for TBDs** — if the strategy doesn't specify where to find version requirements or missing details, leave them as plain "TBD". The gaps are already documented in TestPlanGaps.md.
+   - **Only add content that is directly traceable to the source documents** (strategy, ADR, API specs, design docs, or any additional_docs) — do not make assumptions about where documentation exists or what it contains.
+
+   Use the Edit tool for any auto-fixes applied.
 3. **Present summary**: Show the user:
    - Final score and verdict from TestPlanReview.md
    - Any auto-fixes applied

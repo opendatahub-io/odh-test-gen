@@ -8,6 +8,7 @@ Skills orchestrate: find → ask user → clone (if needed).
 
 import os
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -266,3 +267,57 @@ def get_framework(test_context: Optional[Dict] = None) -> Optional[str]:
             return fw
 
     return None
+
+
+def get_git_root(path: str) -> Optional[str]:
+    """
+    Get git repository root directory.
+
+    Args:
+        path: Directory inside a git repo
+
+    Returns:
+        Absolute path to git root or None if not a git repo
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def get_git_remote(path: str) -> Optional[str]:
+    """
+    Get git repository remote in owner/repo format.
+
+    Args:
+        path: Directory inside a git repo
+
+    Returns:
+        Remote in "owner/repo" format (e.g., "fege/test-plan") or None
+    """
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        url = result.stdout.strip()
+
+        # Extract owner/repo from URL
+        # Handles: https://github.com/owner/repo.git, git@github.com:owner/repo.git
+        match = re.search(r'github\.com[:/]([^/]+/[^/.]+)', url)
+        if match:
+            return match.group(1).replace('.git', '')
+
+        return None
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None

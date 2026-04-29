@@ -3,7 +3,7 @@ name: test-plan.score.test-function
 description: Score generated test function code for completeness, quality, and convention adherence using a 5-criteria rubric
 context: fork
 allowed-tools: Read, Write
-model: opus
+model: sonnet
 user-invocable: false
 ---
 

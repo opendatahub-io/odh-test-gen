@@ -2,7 +2,7 @@
 name: test-plan.score
 description: Score an existing test plan using the quality rubric without triggering auto-revision. Useful for evaluating test plans outside the generation pipeline.
 user-invocable: true
-model: opus
+model: sonnet
 allowedTools:
   - Read
   - Bash

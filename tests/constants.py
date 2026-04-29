@@ -4,6 +4,15 @@ Test data constants for test-plan artifact tests.
 Provides valid base data for each artifact type to use in tests.
 """
 
+from pathlib import Path
+
+# Repository root and common paths
+REPO_ROOT = Path(__file__).parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+
+# Skill directory for testing (relative to repo root)
+TEST_SKILL_DIR = str(Path.cwd() / ".claude" / "skills" / "test-plan.create")
+
 VALID_TEST_PLAN_DATA = {
     "feature": "Test Feature",
     "source_key": "RHAISTRAT-400",

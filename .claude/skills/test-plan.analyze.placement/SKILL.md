@@ -120,7 +120,17 @@ For each TC:
    - Else if `code_repo_readiness in ['low', 'none']`: `downstream += 4`
 
 4. **Determine recommended placement:**
-   - `recommended_placement` = option with highest score
+
+   **Important**: The 'both' option only makes sense when there are reasons to place the test in BOTH locations. If `downstream == 0`, then 'both' is illogical (why place it downstream if there are zero reasons to?).
+
+   - If `downstream == 0`: `recommended_placement` = `same_repo` (because 'both' doesn't make sense if there are zero reasons to place it downstream)
+   - Else if `same_repo == 0`: `recommended_placement` = `downstream` (because 'both' doesn't make sense if there are zero reasons to place it upstream)
+   - Else (both have non-zero scores):
+     - If `same_repo > downstream`: `recommended_placement` = `same_repo`
+     - Else if `downstream > same_repo`: `recommended_placement` = `downstream`
+     - Else (tie: `same_repo == downstream`):
+       - **Tie-breaker**: `recommended_placement` = `same_repo`
+       - **Rationale**: Lower deployment friction - tests in the same repo are easier to run locally, require fewer repository dependencies, and provide faster feedback during development. Only choose downstream when there's a clear advantage (cross-component integration, deployment-specific concerns).
 
 5. **Store decision** for this TC:
    - `tc['level'] = level`

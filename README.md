@@ -10,6 +10,7 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 |-------|-------------|
 | `/test-plan.create` | Generate a test plan from a strategy (RHAISTRAT or RHOAIENG), with optional ADR |
 | `/test-plan.create-cases` | Generate individual test case files from an existing test plan |
+| `/test-plan.update` | Update test plan with new docs (ADR, API specs), re-analyze, bump version |
 | `/test-plan.case-implement` | Generate executable test automation code from TC specifications with intelligent placement |
 | `/test-plan.ui-verify` | Verify UI test cases from a PR against a live ODH/RHOAI cluster via Playwright — see [README](.claude/skills/test-plan.ui-verify/README.md) |
 | `/test-plan.publish` | Publish test plan artifacts to GitHub — branch, commit, and open a PR |
@@ -23,6 +24,8 @@ Claude Code skills for generating test plans and test cases from RHOAI strategie
 | `test-plan.analyze.endpoints` | Extract feature scope, test objectives, and API endpoints/methods |
 | `test-plan.analyze.risks` | Determine test levels, types, priorities, and risks |
 | `test-plan.analyze.infra` | Identify environment config, test data, infrastructure requirements |
+| `test-plan.merge` | Intelligently merge new analyzer findings into existing test plan |
+| `test-plan.resolve-gaps` | Cross-reference gaps with new findings to determine what's resolved |
 | `test-plan.analyze.placement` | Analyze test cases and recommend placement (component repo vs downstream) |
 | `test-plan.review` | Review test plan for completeness, consistency, and quality |
 | `test-plan.create.test-function` | Generate test function code from TC specification matching repo conventions |
@@ -150,6 +153,12 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 # Resolve PR review feedback
 /test-plan.resolve-feedback https://github.com/fege/collection-tests/pull/42
 
+# Update test plan with new documentation
+/test-plan.update ~/Code/collection-tests/mcp_catalog adr.pdf api-spec.md
+
+# Update test plan from GitHub PR with new docs
+/test-plan.update https://github.com/fege/collection-tests/pull/42 design-doc.md
+
 # Generate executable test code from test cases
 /test-plan.case-implement mcp_catalog
 
@@ -209,11 +218,21 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
                     ▼
             GitHub PR (with optional reviewers)
                     │
-                    ▼
-        /test-plan.resolve-feedback (after PR reviews)
+                    ├──────────────────────────────────────┐
+                    │                                      │
+                    ▼                                      ▼
+        /test-plan.resolve-feedback          /test-plan.update (new docs)
+        (after PR reviews)                    │
+                    │                         ├── re-run analyzers
+                    │                         ├── update TestPlan.md
+                    │                         ├── test-plan.review
+                    │                         └── optionally regenerate test cases
+                    │                         │
+                    ▼                         ▼
+            Updated artifacts ◄───────────────┘
                     │
                     ▼
-            Updated artifacts + new commit on PR branch
+            /test-plan.publish (commit & push updates)
 ```
 
 ## Prerequisites
@@ -242,11 +261,17 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 │   └── SKILL.md
 ├── test-plan.analyze.infra/
 │   └── SKILL.md
+├── test-plan.merge/
+│   └── SKILL.md
+├── test-plan.resolve-gaps/
+│   └── SKILL.md
 ├── test-plan.review/
 │   └── SKILL.md
 ├── test-plan.create-cases/
 │   ├── SKILL.md
 │   └── test-case-template.md
+├── test-plan.update/
+│   └── SKILL.md
 ├── test-plan.publish/
 │   └── SKILL.md
 ├── test-plan.resolve-feedback/
@@ -257,9 +282,9 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 
 scripts/
 ├── frontmatter.py          # YAML frontmatter validation and manipulation
-├── skill_repo_guard.sh     # Validates paths/repos to prevent skill repo pollution
-├── repo.py                 # Repository discovery and cloning utilities
-└── utils/                  # Shared utilities for skills
+├── repo.py                 # Repository discovery, cloning, validation, and feature location
+├── tc_regeneration.py      # Test case regeneration mode detection
+└── utils/                  # Shared utilities (schemas, repo utils, frontmatter utils)
 ```
 
 ## Development
