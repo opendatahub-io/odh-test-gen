@@ -53,14 +53,17 @@ class TestPlanSchemaValidation:
     """Test the test-plan schema validation rules."""
 
     @pytest.mark.parametrize("field_name,field_value,should_pass", [
-        # source_key validation (pattern: (RHAISTRAT|RHOAIENG)-\d+)
+        # source_key validation (pattern: (RHAISTRAT|RHOAIENG|RHAIRFE)-\d+)
         ("source_key", "RHAISTRAT-400", True),
         ("source_key", "RHAISTRAT-1", True),
         ("source_key", "RHOAIENG-48676", True),
         ("source_key", "RHOAIENG-1", True),
+        ("source_key", "RHAIRFE-1487", True),
+        ("source_key", "RHAIRFE-1", True),
         ("source_key", "INVALID-400", False),
         ("source_key", "RHAISTRAT400", False),
         ("source_key", "RHOAIENG400", False),
+        ("source_key", "RHAIRFE400", False),
         # version validation (pattern: X.Y.Z)
         ("version", "1.0.0", True),
         ("version", "10.20.30", True),
