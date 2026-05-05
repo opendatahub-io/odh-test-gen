@@ -46,7 +46,7 @@ SCHEMAS = {
         "source_key": {
             "type": "string",
             "required": True,
-            "pattern": r"^(RHAISTRAT|RHOAIENG)-\d+$",
+            "pattern": r"^(RHAISTRAT|RHOAIENG|RHAIRFE)-\d+$",
         },
         "source_type": {
             "type": "string",
@@ -97,7 +97,7 @@ SCHEMAS = {
         "source_key": {
             "type": "string",
             "required": True,
-            "pattern": r"^(RHAISTRAT|RHOAIENG)-\d+$",
+            "pattern": r"^(RHAISTRAT|RHOAIENG|RHAIRFE)-\d+$",
         },
         "priority": {
             "type": "string",
@@ -144,7 +144,7 @@ SCHEMAS = {
         "source_key": {
             "type": "string",
             "required": True,
-            "pattern": r"^(RHAISTRAT|RHOAIENG)-\d+$",
+            "pattern": r"^(RHAISTRAT|RHOAIENG|RHAIRFE)-\d+$",
         },
         "status": {
             "type": "string",
@@ -168,7 +168,7 @@ SCHEMAS = {
         "source_key": {
             "type": "string",
             "required": True,
-            "pattern": r"^(RHAISTRAT|RHOAIENG)-\d+$",
+            "pattern": r"^(RHAISTRAT|RHOAIENG|RHAIRFE)-\d+$",
         },
         "score": {
             "type": "int",
