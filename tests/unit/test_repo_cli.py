@@ -202,7 +202,7 @@ def test_validate_remote_allows_external():
 
     try:
         os.environ['CLAUDE_SKILL_DIR'] = TEST_SKILL_DIR
-        sys.argv = ['repo.py', 'validate-remote', 'fege/collection-tests']
+        sys.argv = ['repo.py', 'validate-remote', 'opendatahub-io/odh-test-plans']
 
         exit_code = repo.main()
         assert exit_code == 0
