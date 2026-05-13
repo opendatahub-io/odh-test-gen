@@ -7,9 +7,9 @@ resolution, URL resolution, cluster snapshot) and writes a context file
 that the Claude skill reads to skip setup and jump straight to TC execution.
 
 Usage:
-    python3 ui_prepare.py --test-plan-pr https://github.com/opendatahub-io/odh-test-plans/pull/5
+    python3 ui_prepare.py --test-plan-pr https://github.com/opendatahub-io/opendatahub-test-plans/pull/5
     python3 ui_prepare.py --test-plan-pr <url> --tc TC-FILTER --priority P0
-    python3 ui_prepare.py --test-plan opendatahub-io/odh-test-plans/tool_calling_model_catalog   # reads from main
+    python3 ui_prepare.py --test-plan opendatahub-io/opendatahub-test-plans/tool_calling_model_catalog   # reads from main
     python3 ui_prepare.py --target-url https://... --test-plan-pr <url>
     python3 ui_prepare.py --setup
 """
@@ -221,7 +221,7 @@ def phase1_load_tcs(args):
         ref = "main"
     elif args.jira:
         fail("--jira mode is not yet implemented.\n"
-             "  Use --test-plan-pr or --test-plan to load TCs from opendatahub-io/odh-test-plans.")
+             "  Use --test-plan-pr or --test-plan to load TCs from opendatahub-io/opendatahub-test-plans.")
     else:
         fail("No input mode specified. Use --test-plan-pr, --test-plan, or --jira.")
 

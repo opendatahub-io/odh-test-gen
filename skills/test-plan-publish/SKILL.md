@@ -18,8 +18,8 @@ Publish test plan artifacts to GitHub by creating a branch, committing all files
 
 **You must work from a personal fork**, not the upstream repository:
 
-1. **Fork** `opendatahub-io/odh-test-plans` to your GitHub account
-2. **Clone** your fork: `git clone https://github.com/YOUR-USERNAME/odh-test-plans ~/Code/odh-test-plans`
+1. **Fork** `opendatahub-io/opendatahub-test-plans` to your GitHub account
+2. **Clone** your fork: `git clone https://github.com/YOUR-USERNAME/opendatahub-test-plans ~/Code/opendatahub-test-plans`
 3. **Create** test plan: `/test-plan-create RHAISTRAT-XXX`
 4. **Generate** test cases: `/test-plan-create-cases`
 5. **Publish**: `/test-plan-publish` - creates PR from your fork → upstream
@@ -57,7 +57,7 @@ If no feature directory can be determined, ask the user via AskUserQuestion:
 > **Where is the test plan to publish?**
 >
 > You can provide:
-> - Local directory path (e.g., `~/Code/odh-test-plans/plans/ai-hub/mcp_catalog`)
+> - Local directory path (e.g., `~/Code/opendatahub-test-plans/plans/ai-hub/mcp_catalog`)
 > - GitHub branch URL (e.g., `https://github.com/org/repo/tree/test-plan/RHAISTRAT-400`)
 > - GitHub PR URL (e.g., `https://github.com/org/repo/pull/5`)
 
@@ -169,7 +169,7 @@ fi
    - Validate it's not the skill repo:
      ```bash
      if ! (cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py validate-remote "$provided_repo"); then
-         echo "Suggested: opendatahub-io/odh-test-plans"
+         echo "Suggested: opendatahub-io/opendatahub-test-plans"
          exit 1
      fi
      ```
@@ -178,7 +178,7 @@ fi
 3. **If `--repo` was NOT provided**: Ask user via AskUserQuestion for a text input (NOT a menu):
    > **Where should this test plan be published?**
    >
-   > Specify the target GitHub repository in `owner/repo` format, or press Enter for default: `opendatahub-io/odh-test-plans`
+   > Specify the target GitHub repository in `owner/repo` format, or press Enter for default: `opendatahub-io/opendatahub-test-plans`
 
 4. Validate the user-provided or default repository:
    - Check format (must be `owner/repo`)
@@ -223,12 +223,12 @@ fi
 
 2. **Check if it's the upstream repository**:
    ```bash
-   if [ "$remote_repo_lower" = "opendatahub-io/odh-test-plans" ]; then
+   if [ "$remote_repo_lower" = "opendatahub-io/opendatahub-test-plans" ]; then
        echo "❌ You are working directly in the upstream repository."
        echo ""
        echo "You must work from a personal fork to contribute:"
-       echo "  1. Fork opendatahub-io/odh-test-plans on GitHub"
-       echo "  2. Clone YOUR fork: git clone https://github.com/YOUR-USERNAME/odh-test-plans ~/Code/odh-test-plans"
+       echo "  1. Fork opendatahub-io/opendatahub-test-plans on GitHub"
+       echo "  2. Clone YOUR fork: git clone https://github.com/YOUR-USERNAME/opendatahub-test-plans ~/Code/opendatahub-test-plans"
        echo "  3. Re-run /test-plan-create in your fork"
        echo ""
        exit 1
@@ -237,7 +237,7 @@ fi
 
 3. **If it's a fork**, proceed. The PR will be created from the fork → upstream.
 
-**Rationale**: Users cannot push branches directly to `opendatahub-io/odh-test-plans`. They must work from a fork and create a PR from fork → upstream.
+**Rationale**: Users cannot push branches directly to `opendatahub-io/opendatahub-test-plans`. They must work from a fork and create a PR from fork → upstream.
 
 ### Step 2: Confirm with User
 

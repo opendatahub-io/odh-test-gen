@@ -54,14 +54,14 @@ uv sync --extra dev
 
 Use skills:
 ```bash
-# Will prompt for artifact location (default: ~/Code/odh-test-plans)
+# Will prompt for artifact location (default: ~/Code/opendatahub-test-plans)
 /test-plan-create RHAISTRAT-400
 
 # Auto-uses location from /test-plan-create
 /test-plan-create-cases
 
 # Auto-detects feature from /test-plan-create session
-# Will prompt for publish target (default: opendatahub-io/odh-test-plans)
+# Will prompt for publish target (default: opendatahub-io/opendatahub-test-plans)
 /test-plan-publish
 ```
 
@@ -91,17 +91,17 @@ When you run `/test-plan-create`, it asks where to save artifacts:
 ```text
 Where should test plan artifacts be created?
 
-Provide a directory path (e.g., ~/Code/odh-test-plans/plans/<team-name>), or press Enter for: ~/Code/odh-test-plans/plans/
+Provide a directory path (e.g., ~/Code/opendatahub-test-plans/plans/<team-name>), or press Enter for: ~/Code/opendatahub-test-plans/plans/
 
 Note: Replace <team-name> with your team name (e.g., ai-hub, dashboard, etc.)
 ```
 
-- **QE Teams**: Provide your team's directory path (e.g., `~/Code/odh-test-plans/plans/ai-hub`)
-- **Contributors**: Use default `~/Code/odh-test-plans/plans/` or any path outside the skill repo
+- **QE Teams**: Provide your team's directory path (e.g., `~/Code/opendatahub-test-plans/plans/ai-hub`)
+- **Contributors**: Use default `~/Code/opendatahub-test-plans/plans/` or any path outside the skill repo
 - **Save Preference**: Optionally save your choice to `.claude/settings.json` for future runs
 
 The skill creates: `<your-path>/<feature-name>/`  
-Example: If you enter `~/Code/odh-test-plans/plans/ai-hub`, it creates `~/Code/odh-test-plans/plans/ai-hub/mcp_catalog/`
+Example: If you enter `~/Code/opendatahub-test-plans/plans/ai-hub`, it creates `~/Code/opendatahub-test-plans/plans/ai-hub/mcp_catalog/`
 
 ### Session Context
 
@@ -111,15 +111,15 @@ Example: If you enter `~/Code/odh-test-plans/plans/ai-hub`, it creates `~/Code/o
 
 **Fork Workflow Required**: You must work from a personal fork to contribute:
 
-1. **Fork** `opendatahub-io/odh-test-plans` on GitHub to `your-username/odh-test-plans`
-2. **Clone** your fork: `git clone https://github.com/YOUR-USERNAME/odh-test-plans ~/Code/odh-test-plans`
+1. **Fork** `opendatahub-io/opendatahub-test-plans` on GitHub to `your-username/opendatahub-test-plans`
+2. **Clone** your fork: `git clone https://github.com/YOUR-USERNAME/opendatahub-test-plans ~/Code/opendatahub-test-plans`
 3. **Create** test plans with `/test-plan-create` (saved in your fork)
 4. **Publish** with `/test-plan-publish`:
    - Pushes to YOUR fork
-   - Creates PR from your fork → upstream `opendatahub-io/odh-test-plans`
+   - Creates PR from your fork → upstream `opendatahub-io/opendatahub-test-plans`
    - The skill verifies you're working from a fork, not upstream
 
-**Default publish target**: `opendatahub-io/odh-test-plans`
+**Default publish target**: `opendatahub-io/opendatahub-test-plans`
 
 ### Contributor Override
 
@@ -154,13 +154,13 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 
 ### Basic Workflow
 
-**Prerequisites**: Fork and clone `opendatahub-io/odh-test-plans` first (see Publishing section above).
+**Prerequisites**: Fork and clone `opendatahub-io/opendatahub-test-plans` first (see Publishing section above).
 
 ```bash
 # 1. Generate a test plan from a Jira strategy
-#    Will ask: Where to save artifacts? [~/Code/odh-test-plans/plans/]
-#    Provide your team path, e.g.: ~/Code/odh-test-plans/plans/ai-hub
-#    Creates: ~/Code/odh-test-plans/plans/ai-hub/<feature>/
+#    Will ask: Where to save artifacts? [~/Code/opendatahub-test-plans/plans/]
+#    Provide your team path, e.g.: ~/Code/opendatahub-test-plans/plans/ai-hub
+#    Creates: ~/Code/opendatahub-test-plans/plans/ai-hub/<feature>/
 /test-plan-create RHAISTRAT-400
 
 # 2. Generate test cases (auto-uses location from step 1)
@@ -169,8 +169,8 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 # 3. Publish to GitHub
 #    Auto-detects feature directory from /test-plan-create session
 #    Verifies you're working from a fork
-#    Creates PR from your-username/odh-test-plans → opendatahub-io/odh-test-plans
-/test-plan-publish
+#    Creates PR from your-username/opendatahub-test-plans → opendatahub-io/opendatahub-test-plans
+/test-plan-publish mcp_catalog
 ```
 
 ### Advanced Options
@@ -180,10 +180,10 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 /test-plan-create RHAISTRAT-400 /path/to/adr.pdf
 
 # Generate test cases from a GitHub PR (for /test-plan-resolve-feedback workflow)
-/test-plan-create-cases https://github.com/opendatahub-io/odh-test-plans/pull/5
+/test-plan-create-cases https://github.com/opendatahub-io/opendatahub-test-plans/pull/5
 
 # Generate test cases for a specific local directory
-/test-plan-create-cases ~/Code/odh-test-plans/plans/ai-hub/mcp_catalog
+/test-plan-create-cases ~/Code/opendatahub-test-plans/plans/ai-hub/mcp_catalog
 
 # Publish with specific reviewers
 /test-plan-publish mcp_catalog --reviewers alice,bob
@@ -192,13 +192,13 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 /test-plan-publish mcp_catalog --repo opendatahub-io/test-plans
 
 # Resolve PR review feedback
-/test-plan-resolve-feedback https://github.com/opendatahub-io/odh-test-plans/pull/42
+/test-plan-resolve-feedback https://github.com/opendatahub-io/opendatahub-test-plans/pull/42
 
 # Update test plan with new documentation
-/test-plan-update ~/Code/odh-test-plans/plans/ai-hub/mcp_catalog adr.pdf api-spec.md
+/test-plan-update ~/Code/opendatahub-test-plans/plans/ai-hub/mcp_catalog adr.pdf api-spec.md
 
 # Update test plan from GitHub PR with new docs
-/test-plan-update https://github.com/opendatahub-io/odh-test-plans/pull/42 design-doc.md
+/test-plan-update https://github.com/opendatahub-io/opendatahub-test-plans/pull/42 design-doc.md
 
 # Generate executable test code from test cases
 /test-plan-case-implement mcp_catalog
