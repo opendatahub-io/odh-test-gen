@@ -207,15 +207,14 @@ fi
    # Normalize: remove .git suffix and all trailing slashes
    normalized=$(echo "$remote_url" | sed -E 's|\.git$||; s|/+$||')
    
-   # Extract owner/repo from both SSH (git@github.com:owner/repo) and HTTPS (https://github.com/owner/repo)
-   if [[ "$normalized" =~ github\.com[:/]([^/]+)/([^/]+)$ ]]; then
-       owner="${BASH_REMATCH[1]}"
-       repo="${BASH_REMATCH[2]}"
-       remote_repo="${owner}/${repo}"
-   else
+   # Extract owner/repo — portable across bash, zsh, sh, dash, ksh
+   if ! echo "$normalized" | grep -qE 'github\.com[:/][^/]+/[^/]+$'; then
        echo "❌ Cannot parse GitHub repository from remote URL: $remote_url"
        exit 1
    fi
+   owner=$(echo "$normalized" | sed -E 's|.*github\.com[:/]([^/]+)/[^/]+$|\1|')
+   repo=$(echo "$normalized"  | sed -E 's|.*github\.com[:/][^/]+/([^/]+)$|\1|')
+   remote_repo="${owner}/${repo}"
    
    # Lowercase for case-insensitive comparison
    remote_repo_lower=$(echo "$remote_repo" | tr '[:upper:]' '[:lower:]')
