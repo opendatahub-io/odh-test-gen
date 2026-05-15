@@ -49,6 +49,9 @@ from scripts.utils.schemas import (
     get_schema_yaml,
 )
 from scripts.utils.frontmatter_utils import (
+    fix_markdown_body,
+    lint_markdown_body,
+    read_frontmatter,
     read_frontmatter_validated,
     update_frontmatter,
     write_frontmatter,
@@ -179,6 +182,83 @@ def cmd_set(args):
     print(f"OK: {args.file}")
 
 
+def cmd_lint(args):
+    """Lint the markdown body of a file using pymarkdownlnt."""
+    if not os.path.exists(args.file):
+        print(f"Error: {args.file} not found", file=sys.stderr)
+        sys.exit(1)
+
+    config_path = args.config_file
+    if not config_path:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidate = os.path.join(repo_root, ".markdownlint.yaml")
+        if os.path.exists(candidate):
+            config_path = candidate
+
+    _, body = read_frontmatter(args.file)
+    if not body.strip():
+        print(f"OK: {args.file} (no markdown body)")
+        return
+
+    failures = lint_markdown_body(body, config_path=config_path)
+    if not failures:
+        print(f"OK: {args.file}")
+        return
+
+    for f in failures:
+        extra = f" [{f['extra_info']}]" if f["extra_info"] else ""
+        print(f"{args.file}:{f['line']}:{f['column']} "
+              f"{f['rule_id']}/{f['rule_name']} "
+              f"{f['description']}{extra}", file=sys.stderr)
+
+    print(f"FAIL: {args.file} ({len(failures)} violation(s))", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_fix(args):
+    """Auto-fix markdown lint violations where supported."""
+    if not os.path.exists(args.file):
+        print(f"Error: {args.file} not found", file=sys.stderr)
+        sys.exit(1)
+
+    config_path = args.config_file
+    if not config_path:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidate = os.path.join(repo_root, ".markdownlint.yaml")
+        if os.path.exists(candidate):
+            config_path = candidate
+
+    with open(args.file, encoding="utf-8") as f:
+        original = f.read()
+
+    _, body = read_frontmatter(args.file)
+    if not body.strip():
+        print(f"OK: {args.file} (no markdown body)")
+        return
+
+    fixed_body, was_fixed = fix_markdown_body(body, config_path=config_path)
+
+    if not was_fixed:
+        print(f"OK: {args.file} (nothing to fix)")
+        return
+
+    content = original.replace(body, fixed_body)
+    with open(args.file, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    remaining = lint_markdown_body(fixed_body, config_path=config_path)
+    print(f"FIXED: {args.file}")
+    if remaining:
+        print(f"  {len(remaining)} unfixable violation(s) remain:",
+              file=sys.stderr)
+        for failure in remaining:
+            extra = (f" [{failure['extra_info']}]"
+                     if failure["extra_info"] else "")
+            print(f"  {args.file}:{failure['line']}:{failure['column']} "
+                  f"{failure['rule_id']}/{failure['rule_name']} "
+                  f"{failure['description']}{extra}", file=sys.stderr)
+
+
 def cmd_validate(args):
     """Validate frontmatter without modifying the file."""
     if not os.path.exists(args.file):
@@ -233,6 +313,24 @@ def main():
                        choices=list(SCHEMAS.keys()),
                        help="Schema type (auto-detected from filename)")
     p_set.set_defaults(func=cmd_set)
+
+    # lint
+    p_lint = subparsers.add_parser("lint",
+                                   help="Lint markdown body")
+    p_lint.add_argument("file", help="Path to the markdown file")
+    p_lint.add_argument("--config", dest="config_file", default=None,
+                        help="Path to .markdownlint.yaml config "
+                             "(default: auto-detect in repo root)")
+    p_lint.set_defaults(func=cmd_lint)
+
+    # fix
+    p_fix = subparsers.add_parser("fix",
+                                  help="Auto-fix markdown lint violations")
+    p_fix.add_argument("file", help="Path to the markdown file")
+    p_fix.add_argument("--config", dest="config_file", default=None,
+                       help="Path to .markdownlint.yaml config "
+                            "(default: auto-detect in repo root)")
+    p_fix.set_defaults(func=cmd_fix)
 
     # validate
     p_validate = subparsers.add_parser("validate",
