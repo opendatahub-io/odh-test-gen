@@ -182,18 +182,36 @@ def cmd_set(args):
     print(f"OK: {args.file}")
 
 
+def _resolve_config_path(config_file):
+    """Resolve the markdownlint config path, falling back to repo root."""
+    if config_file:
+        return config_file
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidate = os.path.join(repo_root, ".markdownlint.yaml")
+    if os.path.exists(candidate):
+        return candidate
+    return None
+
+
+def _print_violations(filepath, failures):
+    """Print lint violations to stderr."""
+    for violation in failures:
+        extra = (f" [{violation['extra_info']}]"
+                 if violation["extra_info"] else "")
+        print(f"{filepath}:{violation['line']}:{violation['column']} "
+              f"{violation['rule_id']}/{violation['rule_name']} "
+              f"{violation['description']}{extra}", file=sys.stderr)
+    print(f"FAIL: {filepath} ({len(failures)} violation(s))",
+          file=sys.stderr)
+
+
 def cmd_lint(args):
     """Lint the markdown body of a file using pymarkdownlnt."""
     if not os.path.exists(args.file):
         print(f"Error: {args.file} not found", file=sys.stderr)
         sys.exit(1)
 
-    config_path = args.config_file
-    if not config_path:
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        candidate = os.path.join(repo_root, ".markdownlint.yaml")
-        if os.path.exists(candidate):
-            config_path = candidate
+    config_path = _resolve_config_path(args.config_file)
 
     _, body = read_frontmatter(args.file)
     if not body.strip():
@@ -205,13 +223,7 @@ def cmd_lint(args):
         print(f"OK: {args.file}")
         return
 
-    for f in failures:
-        extra = f" [{f['extra_info']}]" if f["extra_info"] else ""
-        print(f"{args.file}:{f['line']}:{f['column']} "
-              f"{f['rule_id']}/{f['rule_name']} "
-              f"{f['description']}{extra}", file=sys.stderr)
-
-    print(f"FAIL: {args.file} ({len(failures)} violation(s))", file=sys.stderr)
+    _print_violations(args.file, failures)
     sys.exit(1)
 
 
@@ -221,12 +233,7 @@ def cmd_fix(args):
         print(f"Error: {args.file} not found", file=sys.stderr)
         sys.exit(1)
 
-    config_path = args.config_file
-    if not config_path:
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        candidate = os.path.join(repo_root, ".markdownlint.yaml")
-        if os.path.exists(candidate):
-            config_path = candidate
+    config_path = _resolve_config_path(args.config_file)
 
     with open(args.file, encoding="utf-8") as f:
         original = f.read()
@@ -239,24 +246,22 @@ def cmd_fix(args):
     fixed_body, was_fixed = fix_markdown_body(body, config_path=config_path)
 
     if not was_fixed:
+        remaining = lint_markdown_body(body, config_path=config_path)
+        if remaining:
+            _print_violations(args.file, remaining)
+            sys.exit(1)
         print(f"OK: {args.file} (nothing to fix)")
         return
 
-    content = original.replace(body, fixed_body)
+    content = original.replace(body, fixed_body, 1)
     with open(args.file, "w", encoding="utf-8") as f:
         f.write(content)
 
     remaining = lint_markdown_body(fixed_body, config_path=config_path)
     print(f"FIXED: {args.file}")
     if remaining:
-        print(f"  {len(remaining)} unfixable violation(s) remain:",
-              file=sys.stderr)
-        for failure in remaining:
-            extra = (f" [{failure['extra_info']}]"
-                     if failure["extra_info"] else "")
-            print(f"  {args.file}:{failure['line']}:{failure['column']} "
-                  f"{failure['rule_id']}/{failure['rule_name']} "
-                  f"{failure['description']}{extra}", file=sys.stderr)
+        _print_violations(args.file, remaining)
+        sys.exit(1)
 
 
 def cmd_validate(args):

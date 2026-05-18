@@ -13,10 +13,12 @@ try:
 except ImportError:
     print(
         "Error: PyYAML is required but not installed.\n"
-        "Install it with: uv pip install -r requirements.txt",
+        "Install it with: uv sync",
         file=sys.stderr,
     )
     sys.exit(1)
+
+from pymarkdown.api import PyMarkdownApi
 
 from .schemas import ValidationError, validate, apply_defaults
 
@@ -153,7 +155,7 @@ def load_markdownlint_config(config_path):
         with open(config_path, encoding="utf-8") as f:
             config = yaml.safe_load(f)
         return config if isinstance(config, dict) else {}
-    except FileNotFoundError:
+    except (FileNotFoundError, yaml.YAMLError):
         return {}
 
 
@@ -188,8 +190,6 @@ def lint_markdown_body(body, config_path=None):
         list of failure dicts with keys: line, column, rule_id,
         rule_name, description, extra_info.
     """
-    from pymarkdown.api import PyMarkdownApi
-
     api = PyMarkdownApi()
 
     if config_path:
@@ -222,8 +222,6 @@ def fix_markdown_body(body, config_path=None):
         (fixed_body, was_fixed) — the corrected string and whether
         any changes were made.
     """
-    from pymarkdown.api import PyMarkdownApi
-
     api = PyMarkdownApi()
 
     if config_path:
