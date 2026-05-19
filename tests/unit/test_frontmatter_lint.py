@@ -4,6 +4,7 @@ import os
 import tempfile
 
 import pytest
+from pymarkdown.api import PyMarkdownApi
 
 from scripts.utils.frontmatter_utils import (
     configure_pymarkdown,
@@ -55,12 +56,12 @@ class TestLoadMarkdownlintConfig:
     def test_loads_valid_config(self):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write("MD013:\n  line_length: 120\nMD036: false\n")
-            f.flush()
-            config = load_markdownlint_config(f.name)
+        ) as config_file:
+            config_file.write("MD013:\n  line_length: 120\nMD036: false\n")
+            config_file.flush()
+            config = load_markdownlint_config(config_file.name)
 
-        os.unlink(f.name)
+        os.unlink(config_file.name)
         assert config["MD013"]["line_length"] == 120
         assert config["MD036"] is False
 
@@ -71,19 +72,17 @@ class TestLoadMarkdownlintConfig:
     def test_returns_empty_for_non_dict(self):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write("- just\n- a\n- list\n")
-            f.flush()
-            config = load_markdownlint_config(f.name)
+        ) as config_file:
+            config_file.write("- just\n- a\n- list\n")
+            config_file.flush()
+            config = load_markdownlint_config(config_file.name)
 
-        os.unlink(f.name)
+        os.unlink(config_file.name)
         assert config == {}
 
 
 class TestConfigurePymarkdown:
     def test_disables_rule_when_false(self):
-        from pymarkdown.api import PyMarkdownApi
-
         api = PyMarkdownApi()
         configure_pymarkdown(api, {"MD036": False})
         result = api.scan_string(
@@ -95,8 +94,6 @@ class TestConfigurePymarkdown:
         assert len(md036_failures) == 0
 
     def test_sets_integer_property(self):
-        from pymarkdown.api import PyMarkdownApi
-
         api = PyMarkdownApi()
         configure_pymarkdown(api, {"MD013": {"line_length": 200}})
         long_line = "# Heading\n\n" + "a" * 150 + "\n"
@@ -130,16 +127,20 @@ class TestLintMarkdownBody:
     def test_config_changes_behavior(self):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
-        ) as f:
-            f.write("MD013:\n  line_length: 200\n")
-            f.flush()
-            failures = lint_markdown_body(LONG_LINE_MARKDOWN, config_path=f.name)
+        ) as config_file:
+            config_file.write("MD013:\n  line_length: 200\n")
+            config_file.flush()
+            failures = lint_markdown_body(
+                LONG_LINE_MARKDOWN, config_path=config_file.name)
 
-        os.unlink(f.name)
-        md013_failures = [f for f in failures if f["rule_id"] == "MD013"]
+        os.unlink(config_file.name)
+        md013_failures = [
+            failure for failure in failures
+            if failure["rule_id"] == "MD013"
+        ]
         assert len(md013_failures) == 0
 
-    def test_frontmatter_stripped_before_lint(self):
+    def test_body_after_frontmatter_is_clean(self):
         body = FRONTMATTER_AND_BODY.split("---\n", 2)[2]
         failures = lint_markdown_body(body)
         assert failures == []
@@ -167,7 +168,9 @@ class TestFixMarkdownBody:
         assert fixed == CLEAN_MARKDOWN
 
     def test_unfixable_violations_remain(self):
-        fixed, was_fixed = fix_markdown_body(DIRTY_MARKDOWN)
+        fixed, _was_fixed = fix_markdown_body(DIRTY_MARKDOWN)
         remaining = lint_markdown_body(fixed)
-        unfixable_ids = {f["rule_id"] for f in remaining}
+        unfixable_ids = {
+            failure["rule_id"] for failure in remaining
+        }
         assert unfixable_ids & {"MD022", "MD032"}
