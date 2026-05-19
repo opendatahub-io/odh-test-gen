@@ -163,6 +163,10 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 #    Creates: ~/Code/opendatahub-test-plans/plans/ai-hub/<feature>/
 /test-plan-create RHAISTRAT-400
 
+# For CI/automation (skips interactive gap resolution):
+export CLAUDE_NON_INTERACTIVE=true
+/test-plan-create RHAISTRAT-400
+
 # 2. Generate test cases (auto-uses location from step 1)
 /test-plan-create-cases
 
@@ -287,6 +291,12 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - Git installed
 - Python 3.10 or higher
+
+### CI/Automation Mode
+Skills support non-interactive mode for CI environments:
+- Set `CLAUDE_NON_INTERACTIVE=true` to skip interactive prompts
+- Or run in a CI environment (auto-detected via `CI` environment variable)
+- Gap resolution and other prompts will auto-proceed with safe defaults
 
 ### Required for Specific Features
 - **Jira integration**: Environment variables configured (for `/test-plan-create`, `/test-plan-review`, `/test-plan-score`):
