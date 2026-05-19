@@ -163,6 +163,10 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 #    Creates: ~/Code/opendatahub-test-plans/plans/ai-hub/<feature>/
 /test-plan-create RHAISTRAT-400
 
+# For CI/automation (skips interactive gap resolution):
+export CLAUDE_NON_INTERACTIVE=true
+/test-plan-create RHAISTRAT-400
+
 # 2. Generate test cases (auto-uses location from step 1)
 /test-plan-create-cases
 
@@ -288,8 +292,17 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 - Git installed
 - Python 3.10 or higher
 
+### CI/Automation Mode
+Skills support non-interactive mode for CI environments:
+- Set `CLAUDE_NON_INTERACTIVE=true` to skip interactive prompts
+- Or run in a CI environment (auto-detected via `CI` environment variable)
+- Gap resolution and other prompts will auto-proceed with safe defaults
+
 ### Required for Specific Features
-- **Jira integration**: [Atlassian MCP server](https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/) configured (for `/test-plan-create`)
+- **Jira integration**: Environment variables configured (for `/test-plan-create`, `/test-plan-review`, `/test-plan-score`):
+  - `JIRA_URL`: Base URL for your Jira instance (e.g., `https://issues.redhat.com`)
+  - `JIRA_USER`: Username or email for authentication
+  - `JIRA_TOKEN`: [API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/) for authentication
 - **GitHub publishing**: [GitHub CLI (`gh`)](https://cli.github.com/) installed and authenticated (for `/test-plan-publish` and `/test-plan-resolve-feedback`)
 - **Test implementation**: Local or cloned target repositories (for `/test-plan-case-implement`)
 
@@ -350,6 +363,9 @@ scripts/
 ├── load_pattern_guides.py  # Load CLAUDE.md and testing pattern guides
 ├── parse_test_score.py     # Parse test quality score assessments
 ├── update_tc_frontmatter.py # Bulk update TC frontmatter fields
+├── jira_utils.py           # Jira REST API client with retry logic
+├── fetch_issue.py          # Fetch Jira issues and save as markdown
+├── add_jira_labels.py      # Add labels to Jira issues (CLI wrapper)
 └── utils/                  # Shared utilities
     ├── schemas.py          # Schema validation (test-plan, test-case, test-gaps, review)
     ├── frontmatter_utils.py # Frontmatter read/write operations
@@ -422,7 +438,9 @@ tests/
 │   ├── test_repo_discovery.py        # Repository indicator extraction
 │   ├── test_repo_utils.py            # Repository utility functions
 │   ├── test_analyzer.py              # Common setup identification
-│   └── test_ui_verify_helpers.py     # UI test helpers
+│   ├── test_ui_verify_helpers.py     # UI test helpers
+│   ├── test_jira_utils.py            # Jira API client tests (retry logic, label merging)
+│   └── test_fetch_issue.py           # Jira issue markdown formatting
 └── integration/                      # Integration tests (subprocess, file I/O)
     ├── test_artifact_utils_validation.py # Review schema validation
     ├── test_filter_for_revision.py   # Revision filter (subprocess)
