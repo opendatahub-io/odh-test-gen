@@ -5,6 +5,17 @@ All notable changes to the test-plan plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Jira integration**: Replaced MCP calls with direct Python scripts for improved cost efficiency and reliability ([#18](https://github.com/opendatahub-io/odh-test-gen/issues/18))
+  - Added `scripts/jira_utils.py` - Jira REST API client with retry logic, proper 204 No Content handling, and deterministic label ordering
+  - Added `scripts/fetch_issue.py` - CLI tool for fetching issues and converting to markdown
+  - Added `scripts/add_jira_labels.py` - Safe CLI wrapper for adding labels (replaces fragile shell string manipulation)
+  - Updated skills (`test-plan-create`, `test-plan-review`, `test-plan-score`) to use environment variables (`JIRA_URL`, `JIRA_USER`, `JIRA_TOKEN`) instead of MCP server
+  - No MCP server setup required - works with standard Jira API tokens
+  - Prevents unnecessary API calls by detecting when labels haven't changed
+
 ## [1.0.0] - 2026-05-06
 
 ### Breaking Changes

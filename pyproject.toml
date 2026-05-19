@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 dependencies = [
     "pyyaml",
     "pymarkdownlnt",
+    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
