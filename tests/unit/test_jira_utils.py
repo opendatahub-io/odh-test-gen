@@ -6,6 +6,7 @@ and label merging. Mocks HTTP layer to avoid actual API calls.
 """
 
 import os
+import sys
 import pytest
 from unittest.mock import Mock, patch
 import requests
@@ -164,6 +165,32 @@ class TestApiCallWithRetry:
 
         # Should only try once for 4xx errors
         assert mock_api_call.call_count == 1
+
+    @patch("scripts.jira_utils.api_call")
+    @patch("builtins.print")
+    def test_no_retry_on_auth_errors_with_message(self, mock_print, mock_api_call):
+        """Test that auth errors (401, 403) are not retried and show helpful message."""
+        for status_code in (401, 403):
+            mock_print.reset_mock()
+            mock_api_call.reset_mock()
+
+            mock_response = Mock()
+            mock_response.status_code = status_code
+            mock_api_call.side_effect = requests.HTTPError(response=mock_response)
+
+            with pytest.raises(requests.HTTPError):
+                api_call_with_retry("/rest/api/2/issue/TEST-123", max_retries=3)
+
+            # Should only try once for auth errors
+            assert mock_api_call.call_count == 1
+
+            # Should print helpful message to stderr
+            stderr_calls = [call for call in mock_print.call_args_list
+                           if call.kwargs.get('file') == sys.stderr]
+            assert stderr_calls
+            error_msg = stderr_calls[0].args[0]
+            assert "Authentication error" in error_msg or f"({status_code})" in error_msg
+            assert "JIRA_" in error_msg  # Mentions env vars
 
     @patch("scripts.jira_utils.api_call")
     @patch("scripts.jira_utils.time.sleep")
