@@ -236,13 +236,23 @@ If any validation fails, fix the issue before proceeding.
 
    If the user declines, leave the changes uncommitted and stop.
 
-2. Stage artifact changes selectively (exclude temp files):
+2. Stage only public artifacts (same pattern as `/test-plan-publish` Step 4):
    ```bash
-   git add <feature_dir>/TestPlan.md \
-           <feature_dir>/test_cases/*.md \
-           <feature_dir>/TestPlanGaps.md
-   # Explicitly excludes: .review-state.json and other temp files
+   # Always stage the required test plan
+   git add "<feature_dir>/TestPlan.md"
+
+   # Stage optional files if they exist
+   [ -f "<feature_dir>/README.md" ] && git add "<feature_dir>/README.md"
+   [ -f "<feature_dir>/TestPlanGaps.md" ] && git add "<feature_dir>/TestPlanGaps.md"
+   [ -f "<feature_dir>/TestPlanReview.md" ] && git add "<feature_dir>/TestPlanReview.md"
+
+   # Stage test_cases files if they exist (compgen guards against empty glob matches)
+   if [ -d "<feature_dir>/test_cases" ] && compgen -G "<feature_dir>/test_cases/*.md" > /dev/null; then
+     git add "<feature_dir>/test_cases/"*.md
+   fi
    ```
+
+   **Important**: This selectively stages only the public artifacts, excluding internal working files like `.review-state.json`, `repo_instructions.md`, `test_implementation_conventions.md`, and `test_scores/` which are meant for internal orchestration only.
 
 3. Commit with a descriptive message that summarizes the actual changes applied, not just "resolve feedback". Use a heredoc to avoid shell injection from frontmatter values:
    ```bash
