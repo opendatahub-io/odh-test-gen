@@ -331,51 +331,27 @@ If the user declines, stop.
    - If branch doesn't exist: Create from up-to-date `main`
    - No user prompt needed - the workflow is deterministic
 
-4. Stage only public artifacts in the feature directory:
+4. Stage, check for changes, and commit in one call:
    ```bash
-   # Get feature directory name (relative path from repo root)
    feature_name=$(basename "$feature_dir")
-
-   # Always stage these required files
-   git add $feature_name/TestPlan.md $feature_name/README.md
-
-   # Stage optional files if they exist
-   [ -f $feature_name/TestPlanGaps.md ] && git add $feature_name/TestPlanGaps.md
-   [ -f $feature_name/TestPlanReview.md ] && git add $feature_name/TestPlanReview.md
-
-   # Stage test_cases files if they exist
-   [ -d $feature_name/test_cases ] && git add $feature_name/test_cases/*.md
-   ```
-
-   **Important**: This selectively stages only the public artifacts (TestPlan.md, TC-*.md, INDEX.md, README.md, TestPlanGaps.md), excluding internal working files like `.review-state.json`, `repo_instructions.md`, `test_implementation_conventions.md`, and `test_scores/` which are meant for internal orchestration only.
-
-5. Check if there are changes to commit:
-   ```bash
-   if ! git diff --cached --quiet; then
-       # There are staged changes, proceed with commit
-       echo "✓ Changes detected, creating commit"
-   else
+   publish_result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py publish-artifacts "$repo_root" "$feature_name" "test-plan(<source_key>): publish <feature> v<version>")
+   committed=$(echo "$publish_result" | jq -r '.committed')
+   if [ "$committed" = "false" ]; then
        echo "⚠ No changes to commit - artifacts are already up to date"
        exit 0
    fi
    ```
 
-6. Commit with a descriptive message. Use a heredoc to avoid shell injection from frontmatter values:
-   ```bash
-   git commit -m "$(cat <<'EOF'
-   test-plan(<source_key>): publish <feature> v<version>
-   EOF
-   )"
-   ```
+   This selectively stages only the public artifacts (TestPlan.md, README.md, TestPlanGaps.md, TestPlanReview.md, test_cases/*.md), excludes internal working files, and commits if there are changes.
 
-7. Push the branch:
+5. Push the branch:
    ```bash
    git push publish-target test-plan/<source_key>
    ```
    
    **Note**: Always use regular push (not `--force`) since we're either creating a new branch or adding commits on top of an existing one.
 
-7. Clean up the temporary remote:
+6. Clean up the temporary remote:
    ```bash
    git remote remove publish-target
    ```

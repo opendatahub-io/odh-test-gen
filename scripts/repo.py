@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""CLI for repository discovery and management utilities.
+"""CLI for repository discovery, management, and artifact publishing.
 
-Skills call this script to find repositories, clone them, and load test context.
+Skills call this script to find repositories, clone them, publish test plan artifacts, and load test context.
 
 Usage:
     # Find a repository in common locations
@@ -41,6 +41,16 @@ Usage:
     uv run python scripts/repo.py safe-checkout <repo_path> <branch> [--remote <remote_name>]
     # Exit code: 0 if success, 1 if uncommitted changes or git error
 
+    # Stage, check for changes, and commit test plan artifacts in one call
+    uv run python scripts/repo.py publish-artifacts <repo_path> <feature_name> <message>
+    # Outputs JSON: {"staged_files": [...], "skipped_files": [...], "committed": true/false, "message": "..."}
+    # Exit code: 0 if success, 1 if required files missing or commit failed
+
+    # Stage test plan artifacts selectively (used internally by publish-artifacts)
+    uv run python scripts/repo.py stage <repo_path> <feature_name>
+    # Outputs JSON: {"staged_files": [...], "skipped_files": [...]}
+    # Exit code: 0 if success, 1 if required files missing
+
 Examples:
     uv run python scripts/repo.py find opendatahub-test-plans
     uv run python scripts/repo.py find-known odh-test-context
@@ -52,6 +62,8 @@ Examples:
     uv run python scripts/repo.py validate-remote opendatahub-io/opendatahub-test-plans
     uv run python scripts/repo.py safe-checkout ~/Code/opendatahub-test-plans test-plan/RHAISTRAT-400
     uv run python scripts/repo.py safe-checkout ~/Code/opendatahub-test-plans test-plan/RHAISTRAT-400 --remote publish-target
+    uv run python scripts/repo.py publish-artifacts ~/Code/opendatahub-test-plans mcp_catalog "test-plan(RHAISTRAT-400): publish mcp_catalog v1.0.0"
+    uv run python scripts/repo.py stage ~/Code/opendatahub-test-plans mcp_catalog
 """
 
 import argparse
@@ -152,6 +164,107 @@ def _handle_github_pr(owner, repo, pr_number):
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
         print(f"ERROR: Failed to fetch PR {pr_number}: {e}", file=sys.stderr)
         return 1
+
+
+def stage_artifacts(repo_path, feature_name):
+    """Selectively stage test plan artifacts for commit.
+
+    Stages required files (TestPlan.md, README.md) and optional files
+    (TestPlanGaps.md, TestPlanReview.md, test_cases/*.md) if they exist.
+
+    Args:
+        repo_path: Path to git repository root
+        feature_name: Name of the feature directory (basename)
+
+    Returns:
+        (exit_code, result_dict) where result_dict contains:
+        - staged_files: list of staged relative paths
+        - skipped_files: list of skipped relative paths
+        - error: error message (only on failure)
+    """
+    feature_dir = Path(repo_path) / feature_name
+    staged = []
+    skipped = []
+
+    required = ["TestPlan.md", "README.md"]
+    for name in required:
+        if not (feature_dir / name).is_file():
+            return 1, {"error": f"{name} not found in {feature_name}/"}
+
+    optional = ["TestPlanGaps.md", "TestPlanReview.md"]
+
+    for name in required + optional:
+        rel = f"{feature_name}/{name}"
+        if (feature_dir / name).is_file():
+            try:
+                subprocess.run(
+                    ["git", "add", rel],
+                    cwd=repo_path, capture_output=True, check=True,
+                )
+                staged.append(rel)
+            except subprocess.CalledProcessError as e:
+                return 1, {"error": f"git add failed for {rel}: {e}"}
+        else:
+            skipped.append(rel)
+
+    tc_dir = feature_dir / "test_cases"
+    if tc_dir.is_dir():
+        for md_file in tc_dir.glob("*.md"):
+            rel = f"{feature_name}/test_cases/{md_file.name}"
+            try:
+                subprocess.run(
+                    ["git", "add", rel],
+                    cwd=repo_path, capture_output=True, check=True,
+                )
+                staged.append(rel)
+            except subprocess.CalledProcessError as e:
+                return 1, {"error": f"git add failed for {rel}: {e}"}
+    else:
+        skipped.append(f"{feature_name}/test_cases/")
+
+    return 0, {"staged_files": staged, "skipped_files": skipped}
+
+
+def publish_artifacts(repo_path, feature_name, message):
+    """Stage test plan artifacts, check for changes, and commit.
+
+    Combines stage + has-changes + commit into a single deterministic
+    operation. Push is left to the caller since remote/branch varies.
+
+    Args:
+        repo_path: Path to git repository root
+        feature_name: Name of the feature directory (basename)
+        message: Commit message
+
+    Returns:
+        (exit_code, result_dict) where result_dict contains:
+        - staged_files: list of staged relative paths
+        - skipped_files: list of skipped relative paths
+        - committed: bool (False if no changes to commit)
+        - message: commit message (only if committed)
+        - error: error message (only on failure)
+    """
+    exit_code, stage_result = stage_artifacts(repo_path, feature_name)
+    if exit_code != 0:
+        return exit_code, stage_result
+
+    has_changes = subprocess.run(
+        ["git", "diff", "--cached", "--quiet"],
+        cwd=repo_path, capture_output=True,
+    ).returncode != 0
+
+    if not has_changes:
+        return 0, {**stage_result, "committed": False}
+
+    try:
+        subprocess.run(
+            ["git", "commit", "-m", message],
+            cwd=repo_path, capture_output=True, check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        return 1, {**stage_result, "committed": False, "error": f"git commit failed: {e}"}
+
+    return 0, {**stage_result, "committed": True, "message": message}
 
 
 def safe_checkout_branch(repo_path, branch, remote="origin"):
@@ -433,6 +546,22 @@ def cmd_validate_remote_repo(args):
     return 0
 
 
+def cmd_publish_artifacts(args):
+    """Stage test plan artifacts, check for changes, and commit."""
+    repo_path = os.path.expanduser(args.repo_path)
+    exit_code, result = publish_artifacts(repo_path, args.feature_name, args.message)
+    print(json.dumps(result, indent=2))
+    return exit_code
+
+
+def cmd_stage(args):
+    """Stage test plan artifacts selectively."""
+    repo_path = os.path.expanduser(args.repo_path)
+    exit_code, result = stage_artifacts(repo_path, args.feature_name)
+    print(json.dumps(result, indent=2))
+    return exit_code
+
+
 def cmd_safe_checkout(args):
     """Safely checkout a branch with uncommitted changes check and stale branch detection."""
     repo_path = args.repo_path
@@ -532,6 +661,25 @@ def main():
         help="Remote repository in owner/repo format"
     )
     parser_validate_remote.set_defaults(func=cmd_validate_remote_repo)
+
+    # publish-artifacts command
+    parser_publish = subparsers.add_parser(
+        "publish-artifacts",
+        help="Stage test plan artifacts, check for changes, and commit"
+    )
+    parser_publish.add_argument("repo_path", help="Path to git repository root")
+    parser_publish.add_argument("feature_name", help="Feature directory name (basename)")
+    parser_publish.add_argument("message", help="Commit message")
+    parser_publish.set_defaults(func=cmd_publish_artifacts)
+
+    # stage command
+    parser_stage = subparsers.add_parser(
+        "stage",
+        help="Selectively stage test plan artifacts for commit"
+    )
+    parser_stage.add_argument("repo_path", help="Path to git repository root")
+    parser_stage.add_argument("feature_name", help="Feature directory name (basename)")
+    parser_stage.set_defaults(func=cmd_stage)
 
     # safe-checkout command
     parser_safe_checkout = subparsers.add_parser(
