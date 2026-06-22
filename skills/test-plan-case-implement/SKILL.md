@@ -518,7 +518,9 @@ If feature source is a GitHub branch, stage, commit, and push updated TC files:
 ```bash
 feature_name=$(basename "$feature_dir")
 repo_root=$(git -C "$feature_dir" rev-parse --show-toplevel)
-(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py publish-artifacts "$repo_root" "$feature_name" "test-plan(<source_key>): mark TCs as implemented")
+if ! publish_result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py publish-artifacts "$repo_root" "$feature_name" "test-plan(<source_key>): mark TCs as implemented"); then
+    echo "ERROR: publish-artifacts failed"; exit 1
+fi
 git push origin <branch_name>
 ```
 

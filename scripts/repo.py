@@ -328,10 +328,11 @@ def pr_create(target_repo, branch, title, body, reviewers=None):
         )
         pr_url = create_result.stdout.strip()
         pr_number_match = re.search(r'/pull/(\d+)', pr_url)
-        pr_number = int(pr_number_match.group(1)) if pr_number_match else 0
+        if not pr_number_match:
+            return 1, {"error": f"Could not parse PR number from: {pr_url}"}
         return 0, {
             "pr_url": pr_url,
-            "pr_number": pr_number,
+            "pr_number": int(pr_number_match.group(1)),
             "created": True,
         }
 
@@ -362,20 +363,20 @@ def pr_comments(repo, pr_number):
     try:
         # Use REST API for conversation comments — preserves [bot] suffix
         conv_result = subprocess.run(
-            ["gh", "api", f"repos/{repo}/issues/{pr_number}/comments"],
+            ["gh", "api", "--paginate", f"repos/{repo}/issues/{pr_number}/comments"],
             capture_output=True, text=True, check=True,
         )
         conv_data = json.loads(conv_result.stdout.strip())
 
         review_result = subprocess.run(
-            ["gh", "api", f"repos/{repo}/pulls/{pr_number}/reviews"],
+            ["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr_number}/reviews"],
             capture_output=True, text=True, check=True,
         )
         review_data = json.loads(review_result.stdout.strip())
 
         # REST API for inline review comments
         inline_result = subprocess.run(
-            ["gh", "api", f"repos/{repo}/pulls/{pr_number}/comments"],
+            ["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr_number}/comments"],
             capture_output=True, text=True, check=True,
         )
         inline_data = json.loads(inline_result.stdout.strip())

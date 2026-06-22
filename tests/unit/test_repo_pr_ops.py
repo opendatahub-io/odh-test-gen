@@ -78,6 +78,29 @@ def test_creates_pr_with_reviewers():
     assert "alice,bob" in create_cmd
 
 
+def test_returns_error_when_pr_url_unparseable():
+    """Returns error when gh pr create output doesn't contain a PR number."""
+    with patch('subprocess.run') as mock_run:
+        def side_effect(cmd, **kwargs):
+            if cmd[:3] == ["gh", "pr", "list"]:
+                return MagicMock(returncode=0, stdout="[]\n")
+            if cmd[:3] == ["gh", "pr", "create"]:
+                return MagicMock(
+                    returncode=0,
+                    stdout="some-unexpected-output\n",
+                )
+            return MagicMock(returncode=0, stdout="")
+
+        mock_run.side_effect = side_effect
+
+        exit_code, result = pr_create(
+            "org/repo", "branch", "Title", "Body",
+        )
+
+    assert exit_code == 1
+    assert "error" in result
+
+
 def test_creates_pr_without_reviewers():
     """Does not pass --reviewer flag when no reviewers provided."""
     with patch('subprocess.run') as mock_run:
@@ -114,11 +137,12 @@ def test_pr_comments_merges_conversation_and_inline():
 
     with patch('subprocess.run') as mock_run:
         def side_effect(cmd, **kwargs):
-            if cmd[:3] == ["gh", "pr", "view"]:
-                return MagicMock(returncode=0, stdout=review_json)
-            if "issues" in str(cmd):
+            endpoint = cmd[-1]
+            if endpoint.endswith("/issues/42/comments"):
                 return MagicMock(returncode=0, stdout=conv_json)
-            if "pulls" in str(cmd):
+            if endpoint.endswith("/pulls/42/reviews"):
+                return MagicMock(returncode=0, stdout=review_json)
+            if endpoint.endswith("/pulls/42/comments"):
                 return MagicMock(returncode=0, stdout=inline_json)
             return MagicMock(returncode=0, stdout="")
 
@@ -128,6 +152,8 @@ def test_pr_comments_merges_conversation_and_inline():
 
     assert exit_code == 0
     assert len(comments) == 3
+    types = {c["type"] for c in comments}
+    assert types == {"conversation", "review", "inline"}
     authors = {c["author"] for c in comments}
     assert authors == {"alice", "bob"}
 
@@ -145,11 +171,12 @@ def test_pr_comments_filters_bot_comments():
 
     with patch('subprocess.run') as mock_run:
         def side_effect(cmd, **kwargs):
-            if cmd[:3] == ["gh", "pr", "view"]:
-                return MagicMock(returncode=0, stdout=review_json)
-            if "issues" in str(cmd):
+            endpoint = cmd[-1]
+            if endpoint.endswith("/issues/42/comments"):
                 return MagicMock(returncode=0, stdout=conv_json)
-            if "pulls" in str(cmd):
+            if endpoint.endswith("/pulls/42/reviews"):
+                return MagicMock(returncode=0, stdout=review_json)
+            if endpoint.endswith("/pulls/42/comments"):
                 return MagicMock(returncode=0, stdout=inline_json)
             return MagicMock(returncode=0, stdout="")
 
@@ -162,6 +189,21 @@ def test_pr_comments_filters_bot_comments():
     assert comments[0]["author"] == "alice"
 
 
+def test_pr_comments_uses_paginate():
+    """All gh api calls include --paginate for complete results."""
+    empty = json.dumps([])
+
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=empty)
+
+        pr_comments("org/repo", 42)
+
+    api_calls = [c[0][0] for c in mock_run.call_args_list if "api" in c[0][0]]
+    assert len(api_calls) == 3
+    for cmd in api_calls:
+        assert "--paginate" in cmd, f"Missing --paginate in {cmd}"
+
+
 def test_pr_comments_empty_when_no_comments():
     """Returns empty list when PR has no comments."""
     conv_json = json.dumps([])
@@ -170,11 +212,12 @@ def test_pr_comments_empty_when_no_comments():
 
     with patch('subprocess.run') as mock_run:
         def side_effect(cmd, **kwargs):
-            if cmd[:3] == ["gh", "pr", "view"]:
-                return MagicMock(returncode=0, stdout=review_json)
-            if "issues" in str(cmd):
+            endpoint = cmd[-1]
+            if endpoint.endswith("/issues/42/comments"):
                 return MagicMock(returncode=0, stdout=conv_json)
-            if "pulls" in str(cmd):
+            if endpoint.endswith("/pulls/42/reviews"):
+                return MagicMock(returncode=0, stdout=review_json)
+            if endpoint.endswith("/pulls/42/comments"):
                 return MagicMock(returncode=0, stdout=inline_json)
             return MagicMock(returncode=0, stdout="")
 

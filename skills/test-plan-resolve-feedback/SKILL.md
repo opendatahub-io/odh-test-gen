@@ -216,7 +216,9 @@ If any validation fails, fix the issue before proceeding.
    ```bash
    feature_name=$(basename "$feature_dir")
    repo_root=$(git -C "$feature_dir" rev-parse --show-toplevel)
-   (cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py publish-artifacts "$repo_root" "$feature_name" "test-plan(<source_key>): <short summary of changes> (PR #<PR_NUMBER>)")
+   if ! publish_result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py publish-artifacts "$repo_root" "$feature_name" "test-plan(<source_key>): <short summary of changes> (PR #<PR_NUMBER>)"); then
+       echo "ERROR: publish-artifacts failed"; exit 1
+   fi
    ```
 
    Generate the commit summary from the list of applied feedback items. Keep it concise — highlight the 2-3 most significant changes. See `skills/commit-examples.md` for examples.

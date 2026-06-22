@@ -334,7 +334,9 @@ If the user declines, stop.
 4. Stage, check for changes, and commit in one call:
    ```bash
    feature_name=$(basename "$feature_dir")
-   publish_result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py publish-artifacts "$repo_root" "$feature_name" "test-plan(<source_key>): publish <feature> v<version>")
+   if ! publish_result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py publish-artifacts "$repo_root" "$feature_name" "test-plan(<source_key>): publish <feature> v<version>"); then
+       echo "ERROR: publish-artifacts failed"; exit 1
+   fi
    committed=$(echo "$publish_result" | jq -r '.committed')
    if [ "$committed" = "false" ]; then
        echo "⚠ No changes to commit - artifacts are already up to date"
