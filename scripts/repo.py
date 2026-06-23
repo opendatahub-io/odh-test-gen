@@ -65,17 +65,17 @@ Examples:
     uv run python scripts/repo.py find opendatahub-test-plans
     uv run python scripts/repo.py find-known odh-test-context
     uv run python scripts/repo.py find-target opendatahub-io/odh-dashboard
-    uv run python scripts/repo.py clone https://github.com/opendatahub-io/opendatahub-test-plans ~/Code/opendatahub-test-plans
-    uv run python scripts/repo.py locate-feature-dir ~/Code/opendatahub-test-plans/plans/ai-hub/mcp_catalog
-    uv run python scripts/repo.py locate-feature-dir https://github.com/org/repo/pull/5
+    uv run python scripts/repo.py clone <github-url> ~/Code/repo
+    uv run python scripts/repo.py locate-feature-dir ~/Code/repo/plans/feature
+    uv run python scripts/repo.py locate-feature-dir <pr-url>
     uv run python scripts/repo.py validate-local-path /tmp/test-validation
-    uv run python scripts/repo.py validate-remote opendatahub-io/opendatahub-test-plans
-    uv run python scripts/repo.py safe-checkout ~/Code/opendatahub-test-plans test-plan/RHAISTRAT-400
-    uv run python scripts/repo.py safe-checkout ~/Code/opendatahub-test-plans test-plan/RHAISTRAT-400 --remote publish-target
-    uv run python scripts/repo.py publish-artifacts ~/Code/opendatahub-test-plans mcp_catalog "test-plan(RHAISTRAT-400): publish mcp_catalog v1.0.0"
-    uv run python scripts/repo.py stage ~/Code/opendatahub-test-plans mcp_catalog
-    uv run python scripts/repo.py pr-create opendatahub-io/opendatahub-test-plans test-plan/RHAISTRAT-400 "Test Plan: mcp_catalog (v1.0.0)" "PR body"
-    uv run python scripts/repo.py pr-comments opendatahub-io/opendatahub-test-plans 10
+    uv run python scripts/repo.py validate-remote org/repo
+    uv run python scripts/repo.py safe-checkout ~/Code/repo branch
+    uv run python scripts/repo.py safe-checkout ~/Code/repo branch --remote target
+    uv run python scripts/repo.py publish-artifacts ~/Code/repo feature "msg"
+    uv run python scripts/repo.py stage ~/Code/repo feature
+    uv run python scripts/repo.py pr-create org/repo branch "Title" "Body"
+    uv run python scripts/repo.py pr-comments org/repo 10
 """
 
 import argparse
@@ -144,13 +144,13 @@ def cmd_locate_feature_dir(args):
     source = args.source
 
     # GitHub PR URL: https://github.com/owner/repo/pull/123
-    pr_match = re.match(r'^https://github.com/([^/]+)/([^/]+)/pull/(\d+)$', source)
+    pr_match = re.match(r"^https://github.com/([^/]+)/([^/]+)/pull/(\d+)$", source)
     if pr_match:
         owner, repo, pr_number = pr_match.groups()
         return _handle_github_pr(owner, repo, pr_number)
 
     # GitHub branch URL: https://github.com/owner/repo/tree/branch-name
-    branch_match = re.match(r'^https://github.com/([^/]+)/([^/]+)/tree/(.+)$', source)
+    branch_match = re.match(r"^https://github.com/([^/]+)/([^/]+)/tree/(.+)$", source)
     if branch_match:
         owner, repo, branch = branch_match.groups()
         return _handle_github_branch(owner, repo, branch)
@@ -167,7 +167,7 @@ def _handle_github_pr(owner, repo, pr_number):
             ["gh", "pr", "view", pr_number, "--repo", f"{owner}/{repo}", "--json", "headRefName"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         pr_data = json.loads(result.stdout)
         branch_name = pr_data["headRefName"]
@@ -211,7 +211,9 @@ def stage_artifacts(repo_path, feature_name):
             try:
                 subprocess.run(
                     ["git", "add", rel],
-                    cwd=repo_path, capture_output=True, check=True,
+                    cwd=repo_path,
+                    capture_output=True,
+                    check=True,
                 )
                 staged.append(rel)
             except subprocess.CalledProcessError as e:
@@ -226,7 +228,9 @@ def stage_artifacts(repo_path, feature_name):
             try:
                 subprocess.run(
                     ["git", "add", rel],
-                    cwd=repo_path, capture_output=True, check=True,
+                    cwd=repo_path,
+                    capture_output=True,
+                    check=True,
                 )
                 staged.append(rel)
             except subprocess.CalledProcessError as e:
@@ -260,10 +264,14 @@ def publish_artifacts(repo_path, feature_name, message):
     if exit_code != 0:
         return exit_code, stage_result
 
-    has_changes = subprocess.run(
-        ["git", "diff", "--cached", "--quiet"],
-        cwd=repo_path, capture_output=True,
-    ).returncode != 0
+    has_changes = (
+        subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=repo_path,
+            capture_output=True,
+        ).returncode
+        != 0
+    )
 
     if not has_changes:
         return 0, {**stage_result, "committed": False}
@@ -271,7 +279,9 @@ def publish_artifacts(repo_path, feature_name, message):
     try:
         subprocess.run(
             ["git", "commit", "-m", message],
-            cwd=repo_path, capture_output=True, check=True,
+            cwd=repo_path,
+            capture_output=True,
+            check=True,
         )
     except subprocess.CalledProcessError as e:
         return 1, {**stage_result, "committed": False, "error": f"git commit failed: {e}"}
@@ -298,9 +308,10 @@ def pr_create(target_repo, branch, title, body, reviewers=None):
     """
     try:
         list_result = subprocess.run(
-            ["gh", "pr", "list", "--repo", target_repo, "--head", branch,
-             "--json", "number,url"],
-            capture_output=True, text=True, check=True,
+            ["gh", "pr", "list", "--repo", target_repo, "--head", branch, "--json", "number,url"],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         existing = json.loads(list_result.stdout.strip())
 
@@ -313,21 +324,31 @@ def pr_create(target_repo, branch, title, body, reviewers=None):
             }
 
         create_cmd = [
-            "gh", "pr", "create",
-            "--repo", target_repo,
-            "--title", title,
-            "--body", body,
-            "--base", "main",
-            "--head", branch,
+            "gh",
+            "pr",
+            "create",
+            "--repo",
+            target_repo,
+            "--title",
+            title,
+            "--body",
+            body,
+            "--base",
+            "main",
+            "--head",
+            branch,
         ]
         if reviewers:
             create_cmd.extend(["--reviewer", reviewers])
 
         create_result = subprocess.run(
-            create_cmd, capture_output=True, text=True, check=True,
+            create_cmd,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         pr_url = create_result.stdout.strip()
-        pr_number_match = re.search(r'/pull/(\d+)', pr_url)
+        pr_number_match = re.search(r"/pull/(\d+)", pr_url)
         if not pr_number_match:
             return 1, {"error": f"Could not parse PR number from: {pr_url}"}
         return 0, {
@@ -340,6 +361,25 @@ def pr_create(target_repo, branch, title, body, reviewers=None):
         return 1, {"error": f"GitHub CLI failed: {e.stderr or e}"}
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         return 1, {"error": f"Failed to parse gh output: {e}"}
+
+
+def _gh_api_paginated(endpoint):
+    """Call gh api --paginate with --jq '.[]' to avoid JSON concatenation bugs.
+
+    gh api --paginate concatenates raw JSON arrays ('[...][...]') when results
+    span multiple pages. Using --jq '.[]' flattens each page into NDJSON,
+    which we parse line-by-line and collect into a single list.
+    """
+    result = subprocess.run(
+        ["gh", "api", "--paginate", "--jq", ".[]", endpoint],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    stdout = result.stdout.strip()
+    if not stdout:
+        return []
+    return [json.loads(line) for line in stdout.splitlines()]
 
 
 def pr_comments(repo, pr_number):
@@ -361,25 +401,9 @@ def pr_comments(repo, pr_number):
         - line: line number (inline only)
     """
     try:
-        # Use REST API for conversation comments — preserves [bot] suffix
-        conv_result = subprocess.run(
-            ["gh", "api", "--paginate", f"repos/{repo}/issues/{pr_number}/comments"],
-            capture_output=True, text=True, check=True,
-        )
-        conv_data = json.loads(conv_result.stdout.strip())
-
-        review_result = subprocess.run(
-            ["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr_number}/reviews"],
-            capture_output=True, text=True, check=True,
-        )
-        review_data = json.loads(review_result.stdout.strip())
-
-        # REST API for inline review comments
-        inline_result = subprocess.run(
-            ["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr_number}/comments"],
-            capture_output=True, text=True, check=True,
-        )
-        inline_data = json.loads(inline_result.stdout.strip())
+        conv_data = _gh_api_paginated(f"repos/{repo}/issues/{pr_number}/comments")
+        review_data = _gh_api_paginated(f"repos/{repo}/pulls/{pr_number}/reviews")
+        inline_data = _gh_api_paginated(f"repos/{repo}/pulls/{pr_number}/comments")
 
     except subprocess.CalledProcessError as e:
         return 1, {"error": f"GitHub CLI failed: {e.stderr or e}"}
@@ -392,11 +416,13 @@ def pr_comments(repo, pr_number):
         author = c.get("user", {}).get("login", "")
         if author.endswith("[bot]"):
             continue
-        comments.append({
-            "author": author,
-            "body": c.get("body", ""),
-            "type": "conversation",
-        })
+        comments.append(
+            {
+                "author": author,
+                "body": c.get("body", ""),
+                "type": "conversation",
+            }
+        )
 
     for r in review_data:
         author = r.get("user", {}).get("login", "")
@@ -405,23 +431,27 @@ def pr_comments(repo, pr_number):
         body = r.get("body", "")
         if not body:
             continue
-        comments.append({
-            "author": author,
-            "body": body,
-            "type": "review",
-        })
+        comments.append(
+            {
+                "author": author,
+                "body": body,
+                "type": "review",
+            }
+        )
 
     for ic in inline_data:
         author = ic.get("user", {}).get("login", "")
         if author.endswith("[bot]"):
             continue
-        comments.append({
-            "author": author,
-            "body": ic.get("body", ""),
-            "type": "inline",
-            "path": ic.get("path", ""),
-            "line": ic.get("line"),
-        })
+        comments.append(
+            {
+                "author": author,
+                "body": ic.get("body", ""),
+                "type": "inline",
+                "path": ic.get("path", ""),
+                "line": ic.get("line"),
+            }
+        )
 
     return 0, comments
 
@@ -446,11 +476,7 @@ def safe_checkout_branch(repo_path, branch, remote="origin"):
     try:
         # Check for dirty working tree
         status_result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "status", "--porcelain"], cwd=repo_path, capture_output=True, text=True, check=True
         )
 
         if status_result.stdout.strip():
@@ -466,28 +492,21 @@ def safe_checkout_branch(repo_path, branch, remote="origin"):
         subprocess.run(["git", "fetch", remote], cwd=repo_path, check=True, capture_output=True)
 
         # Check if branch exists locally
-        local_branch_exists = subprocess.run(
-            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
-            cwd=repo_path,
-            capture_output=True
-        ).returncode == 0
+        local_branch_exists = (
+            subprocess.run(
+                ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=repo_path, capture_output=True
+            ).returncode
+            == 0
+        )
 
         if local_branch_exists:
             # Check if local branch is stale (behind remote)
             local_sha = subprocess.run(
-                ["git", "rev-parse", branch],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                check=True
+                ["git", "rev-parse", branch], cwd=repo_path, capture_output=True, text=True, check=True
             ).stdout.strip()
 
             remote_sha = subprocess.run(
-                ["git", "rev-parse", f"{remote}/{branch}"],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                check=True
+                ["git", "rev-parse", f"{remote}/{branch}"], cwd=repo_path, capture_output=True, text=True, check=True
             ).stdout.strip()
 
             if local_sha != remote_sha:
@@ -499,10 +518,7 @@ def safe_checkout_branch(repo_path, branch, remote="origin"):
         else:
             # Branch doesn't exist locally, create tracking branch
             subprocess.run(
-                ["git", "checkout", "-b", branch, f"{remote}/{branch}"],
-                cwd=repo_path,
-                check=True,
-                capture_output=True
+                ["git", "checkout", "-b", branch, f"{remote}/{branch}"], cwd=repo_path, check=True, capture_output=True
             )
 
         return 0
@@ -546,12 +562,7 @@ def _handle_github_branch(owner, repo, branch):
         return 1
 
     # Output results
-    result = {
-        "feature_dir": feature_dir,
-        "source_type": "github",
-        "repo_owner": owner,
-        "repo_name": repo
-    }
+    result = {"feature_dir": feature_dir, "source_type": "github", "repo_owner": owner, "repo_name": repo}
     print(json.dumps(result, indent=2))
     return 0
 
@@ -572,10 +583,7 @@ def _handle_local_path(path):
         return 1
 
     # Output results
-    result = {
-        "feature_dir": path,
-        "source_type": "local"
-    }
+    result = {"feature_dir": path, "source_type": "local"}
     print(json.dumps(result, indent=2))
     return 0
 
@@ -605,7 +613,7 @@ def _find_testplan_in_repo(repo_path, branch_hint=None):
     # Multiple TestPlan.md files - try to disambiguate using branch_hint
     if branch_hint:
         # Extract issue key from branch name (e.g., "RHAISTRAT-1507" from "test-plan/RHAISTRAT-1507")
-        issue_key_match = re.search(r'(RHAISTRAT|RHOAIENG|RHODA)-\d+', branch_hint)
+        issue_key_match = re.search(r"(RHAISTRAT|RHOAIENG|RHODA)-\d+", branch_hint)
         if issue_key_match:
             issue_key = issue_key_match.group(0)
 
@@ -614,7 +622,7 @@ def _find_testplan_in_repo(repo_path, branch_hint=None):
                 try:
                     content = testplan.read_text()
                     # Quick check for source_key in frontmatter
-                    if f'source_key: {issue_key}' in content[:500]:
+                    if f"source_key: {issue_key}" in content[:500]:
                         return str(testplan.parent)
                 except Exception:
                     continue
@@ -640,7 +648,7 @@ def cmd_validate_local_path(args):
         return 0
 
     # Get skill repo root (CLAUDE_SKILL_DIR must be set in environment)
-    skill_dir = os.environ.get('CLAUDE_SKILL_DIR')
+    skill_dir = os.environ.get("CLAUDE_SKILL_DIR")
     if not skill_dir:
         print("WARNING: CLAUDE_SKILL_DIR not set, skipping validation", file=sys.stderr)
         return 0
@@ -678,7 +686,7 @@ def cmd_validate_remote_repo(args):
     repo = args.repo
 
     # Get skill repo remote
-    skill_dir = os.environ.get('CLAUDE_SKILL_DIR')
+    skill_dir = os.environ.get("CLAUDE_SKILL_DIR")
     if not skill_dir:
         print("WARNING: CLAUDE_SKILL_DIR not set, skipping validation", file=sys.stderr)
         return 0
@@ -715,7 +723,10 @@ def cmd_pr_comments(args):
 def cmd_pr_create(args):
     """Create a PR or detect an existing one."""
     exit_code, result = pr_create(
-        args.target_repo, args.branch, args.title, args.body,
+        args.target_repo,
+        args.branch,
+        args.title,
+        args.body,
         reviewers=args.reviewers,
     )
     print(json.dumps(result, indent=2))
@@ -764,94 +775,58 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # find command
-    parser_find = subparsers.add_parser(
-        "find",
-        help="Find repository in common locations"
-    )
+    parser_find = subparsers.add_parser("find", help="Find repository in common locations")
     parser_find.add_argument("repo_name", help="Repository name to find")
     parser_find.set_defaults(func=cmd_find)
 
     # find-known command
-    parser_find_known = subparsers.add_parser(
-        "find-known",
-        help="Find known repository (odh-test-context, tiger-team)"
-    )
+    parser_find_known = subparsers.add_parser("find-known", help="Find known repository (odh-test-context, tiger-team)")
     parser_find_known.add_argument(
-        "repo_type",
-        choices=["odh-test-context", "tiger-team"],
-        help="Type of known repository"
+        "repo_type", choices=["odh-test-context", "tiger-team"], help="Type of known repository"
     )
     parser_find_known.set_defaults(func=cmd_find_known)
 
     # find-target command
-    parser_find_target = subparsers.add_parser(
-        "find-target",
-        help="Find target repository (handles org/repo format)"
-    )
-    parser_find_target.add_argument(
-        "repo_name",
-        help="Repository name (with or without org)"
-    )
+    parser_find_target = subparsers.add_parser("find-target", help="Find target repository (handles org/repo format)")
+    parser_find_target.add_argument("repo_name", help="Repository name (with or without org)")
     parser_find_target.set_defaults(func=cmd_find_target)
 
     # clone command
-    parser_clone = subparsers.add_parser(
-        "clone",
-        help="Clone repository"
-    )
+    parser_clone = subparsers.add_parser("clone", help="Clone repository")
     parser_clone.add_argument("repo_url", help="GitHub URL to clone")
     parser_clone.add_argument("target_path", help="Where to clone (~ expanded)")
     parser_clone.set_defaults(func=cmd_clone)
 
     # locate-feature-dir command
     parser_locate = subparsers.add_parser(
-        "locate-feature-dir",
-        help="Locate test plan feature directory from local path or GitHub URL"
+        "locate-feature-dir", help="Locate test plan feature directory from local path or GitHub URL"
     )
-    parser_locate.add_argument(
-        "source",
-        help="Local path, GitHub PR URL, or GitHub branch URL"
-    )
+    parser_locate.add_argument("source", help="Local path, GitHub PR URL, or GitHub branch URL")
     parser_locate.set_defaults(func=cmd_locate_feature_dir)
 
     # validate-local-path command
     parser_validate_path = subparsers.add_parser(
-        "validate-local-path",
-        help="Validate that a local path is not inside the skill repository"
+        "validate-local-path", help="Validate that a local path is not inside the skill repository"
     )
     parser_validate_path.add_argument("path", help="Path to validate")
-    parser_validate_path.add_argument(
-        "--force",
-        action="store_true",
-        help="Force flag - skip validation"
-    )
+    parser_validate_path.add_argument("--force", action="store_true", help="Force flag - skip validation")
     parser_validate_path.set_defaults(func=cmd_validate_local_path)
 
     # validate-remote command
     parser_validate_remote = subparsers.add_parser(
-        "validate-remote",
-        help="Validate that a remote repository is not the skill repository"
+        "validate-remote", help="Validate that a remote repository is not the skill repository"
     )
-    parser_validate_remote.add_argument(
-        "repo",
-        help="Remote repository in owner/repo format"
-    )
+    parser_validate_remote.add_argument("repo", help="Remote repository in owner/repo format")
     parser_validate_remote.set_defaults(func=cmd_validate_remote_repo)
 
     # pr-comments command
-    parser_pr_comments = subparsers.add_parser(
-        "pr-comments",
-        help="Fetch all review comments from a PR"
-    )
+    parser_pr_comments = subparsers.add_parser("pr-comments", help="Fetch all review comments from a PR")
     parser_pr_comments.add_argument("repo", help="Repository (owner/repo)")
     parser_pr_comments.add_argument("pr_number", type=int, help="PR number")
     parser_pr_comments.set_defaults(func=cmd_pr_comments)
 
     # pr-create command
-    parser_pr_create = subparsers.add_parser(
-        "pr-create",
-        help="Create a PR or detect an existing one for a branch"
-    )
+    parser_pr_create = subparsers.add_parser("pr-create", help="Create a PR or detect an existing one for a branch")
     parser_pr_create.add_argument("target_repo", help="Target repository (owner/repo)")
     parser_pr_create.add_argument("branch", help="Branch name")
     parser_pr_create.add_argument("title", help="PR title")
@@ -861,8 +836,7 @@ def main():
 
     # publish-artifacts command
     parser_publish = subparsers.add_parser(
-        "publish-artifacts",
-        help="Stage test plan artifacts, check for changes, and commit"
+        "publish-artifacts", help="Stage test plan artifacts, check for changes, and commit"
     )
     parser_publish.add_argument("repo_path", help="Path to git repository root")
     parser_publish.add_argument("feature_name", help="Feature directory name (basename)")
@@ -870,26 +844,18 @@ def main():
     parser_publish.set_defaults(func=cmd_publish_artifacts)
 
     # stage command
-    parser_stage = subparsers.add_parser(
-        "stage",
-        help="Selectively stage test plan artifacts for commit"
-    )
+    parser_stage = subparsers.add_parser("stage", help="Selectively stage test plan artifacts for commit")
     parser_stage.add_argument("repo_path", help="Path to git repository root")
     parser_stage.add_argument("feature_name", help="Feature directory name (basename)")
     parser_stage.set_defaults(func=cmd_stage)
 
     # safe-checkout command
     parser_safe_checkout = subparsers.add_parser(
-        "safe-checkout",
-        help="Safely checkout a branch with uncommitted changes check and stale branch detection"
+        "safe-checkout", help="Safely checkout a branch with uncommitted changes check and stale branch detection"
     )
     parser_safe_checkout.add_argument("repo_path", help="Path to git repository")
     parser_safe_checkout.add_argument("branch", help="Branch name to checkout")
-    parser_safe_checkout.add_argument(
-        "--remote",
-        default="origin",
-        help="Remote name (default: origin)"
-    )
+    parser_safe_checkout.add_argument("--remote", default="origin", help="Remote name (default: origin)")
     parser_safe_checkout.set_defaults(func=cmd_safe_checkout)
 
     args = parser.parse_args()

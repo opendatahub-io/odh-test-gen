@@ -21,12 +21,6 @@ def git_repo(tmp_path):
     return tmp_path
 
 
-def stage_file(repo_path, filename="new.txt", content="new"):
-    """Create and stage a file in a git repo."""
-    (repo_path / filename).write_text(content)
-    subprocess.run(["git", "add", filename], cwd=repo_path, capture_output=True, check=True)
-
-
 def add_feature(repo_path, feature_name, files):
     """Add a feature directory with specified files to a repo."""
     feature = Path(repo_path) / feature_name
