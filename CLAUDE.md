@@ -39,6 +39,13 @@ CI enforces `--cov-fail-under=65` for test coverage.
 
 ## Linting
 
+Pre-commit hooks enforce code quality (run `pre-commit run --all-files` or let git hooks trigger automatically):
+- **ruff** — linting and formatting (config in `pyproject.toml`, 120-char line length)
+- **flake8** — with RedHatQE plugins UUC (unused-unique-constants) and UFN (unique-function-names); config in `.flake8`
+- **Standard hooks** — check-merge-conflict, debug-statements, trailing-whitespace, end-of-file-fixer, check-ast, check-builtin-literals, check-toml
+
+CI runs pre-commit and skillsaw on every PR via `.github/workflows/lint.yml`.
+
 Skillsaw lints skill files for context budget (warn at 6000 tokens, error at 8000), content positioning, and placeholder text. Config is in `.skillsaw.yaml` with strict mode enabled.
 
 Markdown linting uses pymarkdownlnt with config in `.markdownlint.yaml` (100-char line length, some rules disabled).
