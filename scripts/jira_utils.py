@@ -217,3 +217,33 @@ def add_labels(issue_key: str, labels: list[str]) -> None:
     update_data = {"fields": {"labels": all_labels}}
 
     api_call_with_retry(endpoint, method="PUT", json_data=update_data)
+
+
+def add_comment(issue_key: str, body: str) -> dict[str, Any]:
+    """Add a plain-text comment to a Jira issue.
+
+    The *body* is wrapped in Atlassian Document Format (ADF) automatically.
+
+    Args:
+        issue_key: The Jira issue key (e.g., ``RHAISTRAT-1868``)
+        body: Comment text (plain text, may contain markdown-like formatting)
+
+    Returns:
+        The created comment as a dictionary (id, self, body, author, created)
+
+    Raises:
+        requests.HTTPError: If the request fails
+    """
+    adf_body = {
+        "version": 1,
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": body}],
+            }
+        ],
+    }
+
+    endpoint = f"/rest/api/3/issue/{issue_key}/comment"
+    return api_call_with_retry(endpoint, method="POST", json_data={"body": adf_body})
