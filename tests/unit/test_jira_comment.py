@@ -6,7 +6,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
 from scripts.jira_utils import add_comment
 
@@ -28,7 +27,7 @@ class TestAddComment:
                 "JIRA_TOKEN": "test-token",
             },
         ):
-            result = add_comment("RHAISTRAT-1868", "Test plan updated v1.0 -> v1.1")
+            add_comment("RHAISTRAT-1868", "Test plan updated v1.0 -> v1.1")
 
         mock_request.assert_called_once()
         call_args = mock_request.call_args

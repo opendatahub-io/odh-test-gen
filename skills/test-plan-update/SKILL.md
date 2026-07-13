@@ -398,7 +398,7 @@ else
 fi
 ```
 
-This creates a **new** timestamped directory (preserving history) and pushes via `git commit + push`.
+This creates a **new** timestamped directory on a feature branch and opens a GitLab merge request against `main`.
 The working copy remains in place for subsequent iterations.
 
 ### Step 12: Notify Jira
@@ -417,9 +417,10 @@ If the `source_key` from TestPlan.md frontmatter matches a Jira key pattern:
 2. Post the comment:
    ```bash
    cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel)
-   uv run python -c "
+   SOURCE_KEY="$source_key" COMMENT_BODY="$comment_body" uv run python -c "
+   import os
    from scripts.jira_utils import add_comment
-   add_comment('$source_key', '''$comment_body''')
+   add_comment(os.environ['SOURCE_KEY'], os.environ['COMMENT_BODY'])
    "
    ```
 
