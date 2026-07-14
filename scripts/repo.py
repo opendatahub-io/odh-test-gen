@@ -940,9 +940,9 @@ def push_to_gitlab(feature_dir, clone_root=None):
     clone_root = clone_root or os.environ.get("TEST_PLANS_DATA_DIR", GITLAB_CLONE_ROOT_DEFAULT)
 
     gitlab_token = os.environ.get("GITLAB_TOKEN", "")
-    clone_url = (
-        f"https://oauth2:{gitlab_token}@{GITLAB_REPO_URL}.git" if gitlab_token else f"https://{GITLAB_REPO_URL}.git"
-    )
+    if not gitlab_token:
+        return 1, {"error": "GITLAB_TOKEN environment variable is required"}
+    clone_url = f"https://oauth2:{gitlab_token}@{GITLAB_REPO_URL}.git"
 
     if not os.path.isdir(os.path.join(clone_root, ".git")):
         return 1, {"error": f"No local clone found at {clone_root}. Run ensure-gitlab-checkout first."}
@@ -1061,6 +1061,18 @@ def push_to_gitlab(feature_dir, clone_root=None):
         stderr = (e.stderr or "").replace(os.environ.get("GITLAB_TOKEN", ""), "***")
         subprocess.run(
             ["git", "remote", "set-url", "origin", f"https://{GITLAB_REPO_URL}.git"],
+            cwd=clone_root,
+            capture_output=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=clone_root,
+            capture_output=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["git", "branch", "-D", branch_name],
             cwd=clone_root,
             capture_output=True,
             timeout=30,

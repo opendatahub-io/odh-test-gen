@@ -16,9 +16,27 @@ from unittest.mock import MagicMock, patch
 from scripts.repo import push_to_gitlab
 
 
+class TestPushToGitlabMissingToken:
+    def test_empty_token(self, tmp_path):
+        with patch.dict(os.environ, {"GITLAB_TOKEN": ""}, clear=False):
+            os.environ.pop("GITLAB_TOKEN", None)
+            code, result = push_to_gitlab(str(tmp_path), clone_root=str(tmp_path / "nonexistent"))
+        assert code == 1
+        assert "GITLAB_TOKEN" in result["error"]
+
+    def test_unset_token(self, tmp_path):
+        env = os.environ.copy()
+        env.pop("GITLAB_TOKEN", None)
+        with patch.dict(os.environ, env, clear=True):
+            code, result = push_to_gitlab(str(tmp_path), clone_root=str(tmp_path / "nonexistent"))
+        assert code == 1
+        assert "GITLAB_TOKEN" in result["error"]
+
+
 class TestPushToGitlabNoClone:
     def test_no_clone(self, tmp_path):
-        code, result = push_to_gitlab(str(tmp_path), clone_root=str(tmp_path / "nonexistent"))
+        with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
+            code, result = push_to_gitlab(str(tmp_path), clone_root=str(tmp_path / "nonexistent"))
         assert code == 1
         assert "No local clone" in result["error"]
 
@@ -32,7 +50,8 @@ class TestPushToGitlabNoTestplan:
         feature = tmp_path / "feature"
         feature.mkdir()
 
-        code, result = push_to_gitlab(str(feature), clone_root=str(clone))
+        with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
+            code, result = push_to_gitlab(str(feature), clone_root=str(clone))
         assert code == 1
         assert "TestPlan.md not found" in result["error"]
 
@@ -47,7 +66,8 @@ class TestPushToGitlabMissingKey:
         feature.mkdir()
         (feature / "TestPlan.md").write_text("---\nversion: 1.0.0\n---\n")
 
-        code, result = push_to_gitlab(str(feature), clone_root=str(clone))
+        with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
+            code, result = push_to_gitlab(str(feature), clone_root=str(clone))
         assert code == 1
         assert "source_key" in result["error"]
 
@@ -280,6 +300,39 @@ class TestPushToGitlabGitFailure:
         assert code == 1
         assert "push failed" in result["error"].lower()
         assert "secret" not in result["error"]
+
+    @patch("subprocess.run")
+    def test_push_failure_cleans_up_branch(self, mock_run, tmp_path):
+        clone = tmp_path / "clone"
+        clone.mkdir()
+        (clone / ".git").mkdir()
+
+        feature = tmp_path / "feature"
+        feature.mkdir()
+        (feature / "TestPlan.md").write_text("---\nsource_key: RHAISTRAT-1868\nversion: 1.0.0\nfeature: f\n---\n")
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            if cmd and isinstance(cmd, list) and "push" in cmd:
+                raise subprocess.CalledProcessError(1, "git push", stderr="denied")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = side_effect
+
+        with patch.dict(os.environ, {"GITLAB_TOKEN": "tok"}):
+            code, result = push_to_gitlab(str(feature), clone_root=str(clone))
+
+        assert code == 1
+
+        git_calls = [c[0][0] for c in mock_run.call_args_list if isinstance(c[0][0], list)]
+
+        checkout_main_calls = [c for c in git_calls if "checkout" in c and "main" in c and "-b" not in c]
+        assert len(checkout_main_calls) >= 1, "Expected git checkout main for cleanup"
+
+        branch_delete_calls = [c for c in git_calls if "branch" in c and "-D" in c]
+        assert len(branch_delete_calls) == 1, "Expected git branch -D for cleanup"
+        deleted_branch = branch_delete_calls[0][-1]
+        assert deleted_branch.startswith("test-plan-update/RHAISTRAT-1868-")
 
 
 class TestPushToGitlabConfigurable:
