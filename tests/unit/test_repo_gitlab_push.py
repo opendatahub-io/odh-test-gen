@@ -19,7 +19,6 @@ from scripts.repo import push_to_gitlab
 class TestPushToGitlabMissingToken:
     def test_empty_token(self, tmp_path):
         with patch.dict(os.environ, {"GITLAB_TOKEN": ""}, clear=False):
-            os.environ.pop("GITLAB_TOKEN", None)
             code, result = push_to_gitlab(str(tmp_path), clone_root=str(tmp_path / "nonexistent"))
         assert code == 1
         assert "GITLAB_TOKEN" in result["error"]
@@ -323,6 +322,8 @@ class TestPushToGitlabGitFailure:
             code, result = push_to_gitlab(str(feature), clone_root=str(clone))
 
         assert code == 1
+        assert "error" in result
+        assert "git push failed" in result["error"]
 
         git_calls = [c[0][0] for c in mock_run.call_args_list if isinstance(c[0][0], list)]
 
