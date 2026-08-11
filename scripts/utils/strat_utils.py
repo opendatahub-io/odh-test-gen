@@ -8,6 +8,17 @@ import re
 
 _TESTABILITY_HEADING_RE = re.compile(r"^h3\.\s+Testability(:.*)?\s*$")
 
+# A standalone, fully emphasised line (Jira `*Greenfield:*`, markdown `**Greenfield:**`, or
+# `*Greenfield*:`) groups the items that follow it — it is a label, not an item in its own right.
+# Without this, a section that groups its entries under such labels yields phantom items and
+# inflates the count the `(AC: #N)` coverage gate checks against.
+_GROUP_HEADING_RE = re.compile(r"^(\*{1,2}):?\s*([^*]+?)\s*:?\1:?$")
+
+
+def _is_group_heading(text: str) -> bool:
+    """True when `text` is only an emphasised group label, with no content of its own."""
+    return bool(_GROUP_HEADING_RE.match(text.strip()))
+
 
 def extract_jira_section(content: str, heading_prefix: str) -> str | None:
     """Extract text between a Jira wiki heading and the next h2./h3. heading.
@@ -44,11 +55,12 @@ def _extract_bulleted_texts(section: str) -> list[str]:
 
     if bullet_marker:
         # Split on the bullet marker directly so entries survive with no blank line between them.
-        return [" ".join(item.split()) for item in re.split(bullet_marker, stripped)[1:] if item.strip()]
+        items = [" ".join(item.split()) for item in re.split(bullet_marker, stripped)[1:] if item.strip()]
+        return [item for item in items if not _is_group_heading(item)]
 
     merged = []
     for para in re.split(r"\n\n+", stripped):
-        if text := " ".join(para.split()):
+        if (text := " ".join(para.split())) and not _is_group_heading(text):
             merged.append(text)
     return merged
 

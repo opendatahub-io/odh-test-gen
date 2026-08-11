@@ -61,6 +61,22 @@ class TestParseAcceptanceCriteria:
         assert result["found"] is True
         assert result["count"] == 0
 
+    def test_bold_group_headings_are_not_counted_as_acs(self):
+        content = (
+            "h3. Acceptance Criteria\n\n"
+            "*Greenfield:*\n\n"
+            "Given a new deployment, when a request arrives, then it is served, measured by: one route.\n\n"
+            "*Upgraded:*\n\n"
+            "Given an upgrade, when state is read, then IDs resolve, measured by: same data returned.\n\n"
+            "h3. Effort Estimate\n"
+        )
+
+        result = parse_acceptance_criteria(content)
+
+        assert result["count"] == 2
+        assert all(ac["text"].startswith("Given") for ac in result["acceptance_criteria"])
+        assert [ac["num"] for ac in result["acceptance_criteria"]] == [1, 2]
+
     def test_multiline_ac_parsed_as_single_item(self):
         content = (FIXTURES_DIR / "strat-1737.md").read_text()
 
