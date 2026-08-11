@@ -8,16 +8,34 @@ import re
 
 _TESTABILITY_HEADING_RE = re.compile(r"^h3\.\s+Testability(:.*)?\s*$")
 
-# A standalone, fully emphasised line (Jira `*Greenfield:*`, markdown `**Greenfield:**`, or
-# `*Greenfield*:`) groups the items that follow it — it is a label, not an item in its own right.
-# Without this, a section that groups its entries under such labels yields phantom items and
-# inflates the count the `(AC: #N)` coverage gate checks against.
-_GROUP_HEADING_RE = re.compile(r"^(\*{1,2}):?\s*([^*]+?)\s*:?\1:?$")
+# A line whose entire content sits inside one emphasis span, carrying no unemphasised text.
+# Accepted forms, in Jira and Markdown emphasis, with the colon inside or outside the span:
+#     *Greenfield*     *Greenfield:*     *Greenfield*:
+#     **Greenfield**   **Greenfield:**   **Greenfield**:
+# The inner text may not itself contain `*`, so `*a* and *b*` is not a match.
+_EMPHASISED_LINE_RE = re.compile(r"^(\*{1,2})\s*([^*]+?)\s*:?\1\s*:?$")
 
 
-def _is_group_heading(text: str) -> bool:
-    """True when `text` is only an emphasised group label, with no content of its own."""
-    return bool(_GROUP_HEADING_RE.match(text.strip()))
+def _is_emphasised_line(text: str) -> bool:
+    """True when the whole line sits inside a single emphasis span."""
+    return bool(_EMPHASISED_LINE_RE.match(text.strip()))
+
+
+def _drop_group_headings(items: list[str]) -> list[str]:
+    """Drop emphasised lines that label the items following them.
+
+    An emphasised line is a *heading* only if it actually groups siblings. Judged by shape alone,
+    `*Greenfield:*` (a label) and `*Data is never lost during upgrade*` (a one-clause criterion)
+    are indistinguishable, so filtering every emphasised line would silently delete the criterion
+    — the same count corruption this filter exists to prevent, inverted from inflation to
+    deletion. Requiring at least one later item with unemphasised content removes that
+    false-positive class: a section built entirely of emphasised lines keeps all of them, and a
+    trailing label with nothing beneath it is kept as content rather than guessed away.
+    """
+    emphasised = [_is_emphasised_line(item) for item in items]
+    return [
+        item for i, item in enumerate(items) if not (emphasised[i] and any(not flag for flag in emphasised[i + 1 :]))
+    ]
 
 
 def extract_jira_section(content: str, heading_prefix: str) -> str | None:
@@ -56,13 +74,13 @@ def _extract_bulleted_texts(section: str) -> list[str]:
     if bullet_marker:
         # Split on the bullet marker directly so entries survive with no blank line between them.
         items = [" ".join(item.split()) for item in re.split(bullet_marker, stripped)[1:] if item.strip()]
-        return [item for item in items if not _is_group_heading(item)]
+        return _drop_group_headings(items)
 
     merged = []
     for para in re.split(r"\n\n+", stripped):
-        if (text := " ".join(para.split())) and not _is_group_heading(text):
+        if text := " ".join(para.split()):
             merged.append(text)
-    return merged
+    return _drop_group_headings(merged)
 
 
 def parse_acceptance_criteria(content: str) -> dict:
