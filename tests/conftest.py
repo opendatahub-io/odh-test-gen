@@ -1,12 +1,36 @@
 """Shared fixtures for unit and integration tests."""
 
+import json
 import subprocess
-from pathlib import Path
+import sys
 
 import pytest
 
-from scripts.utils.frontmatter_utils import write_frontmatter
-from tests.constants import VALID_TEST_PLAN_DATA, VALID_TC_CONTENT
+from tests.constants import VALID_TC_CONTENT
+from tests.helpers import write_valid_testplan
+
+
+@pytest.fixture
+def run_cli(capsys):
+    """Run a script's argparse main() with the given argv, returning (exit_code, parsed_json).
+
+    Usage: exit_code, output = run_cli(scripts.parse_strat.main, ["workflow-inputs", path])
+    """
+
+    def _run(main_func, argv):
+        old_argv = sys.argv
+        try:
+            sys.argv = [old_argv[0], *argv]
+            try:
+                main_func()
+                exit_code = 0
+            except SystemExit as exc:
+                exit_code = exc.code
+        finally:
+            sys.argv = old_argv
+        return exit_code, json.loads(capsys.readouterr().out)
+
+    return _run
 
 
 @pytest.fixture
@@ -21,23 +45,13 @@ def git_repo(tmp_path):
     return tmp_path
 
 
-def add_feature(repo_path, feature_name, files):
-    """Add a feature directory with specified files to a repo."""
-    feature = Path(repo_path) / feature_name
-    feature.mkdir(parents=True)
-    for f in files:
-        p = feature / f
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(f"# {f}\n")
-
-
 @pytest.fixture
 def feature_dir(tmp_path):
-    """A complete, valid feature directory with schema-valid frontmatter."""
-    write_frontmatter(str(tmp_path / "TestPlan.md"), VALID_TEST_PLAN_DATA, "test-plan")
+    """A complete, valid feature directory with schema-valid frontmatter and structure."""
+    write_valid_testplan(tmp_path / "TestPlan.md")
     (tmp_path / "README.md").write_text("# Test Feature\n")
     tc_dir = tmp_path / "test_cases"
     tc_dir.mkdir()
     (tc_dir / "INDEX.md").write_text("# Index")
-    (tc_dir / "TC-API-001.md").write_text(VALID_TC_CONTENT)
+    (tc_dir / "TC-E2E-001.md").write_text(VALID_TC_CONTENT)
     return str(tmp_path)
