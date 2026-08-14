@@ -398,6 +398,7 @@ fi
 ```
 
 This creates a **new** timestamped directory on a feature branch and opens a GitLab merge request against `main`.
+The returned `gitlab_url` points to the MR (browsable immediately); `main_tree_url` becomes valid after the MR merges.
 The working copy remains in place for subsequent iterations.
 
 ### Step 12: Notify Jira

@@ -804,63 +804,34 @@ def ensure_gitlab_checkout(source_key, clone_root=None):
 
     prefix = key_match.group(1)
     clone_url = f"https://oauth2:{{token}}@{GITLAB_REPO_URL}.git".format(token=gitlab_token)
+    credential_free_url = f"https://{GITLAB_REPO_URL}.git"
 
-    if not os.path.isdir(os.path.join(clone_root, ".git")):
-        os.makedirs(clone_root, exist_ok=True)
-        try:
+    def _scrub_origin():
+        """Remove credentials from the persisted remote URL."""
+        if os.path.isdir(os.path.join(clone_root, ".git")):
             subprocess.run(
-                ["git", "clone", "--sparse", "--filter=blob:none", "--depth=1", clone_url, clone_root],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=120,
-            )
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr or ""
-            masked = stderr.replace(gitlab_token, "***")
-            return 1, {"error": f"git clone failed: {masked}"}
-
-        subprocess.run(
-            ["git", "remote", "set-url", "origin", f"https://{GITLAB_REPO_URL}.git"],
-            cwd=clone_root,
-            capture_output=True,
-            check=True,
-            timeout=30,
-        )
-
-        try:
-            subprocess.run(
-                ["git", "sparse-checkout", "add", f"{prefix}/"],
+                ["git", "remote", "set-url", "origin", credential_free_url],
                 cwd=clone_root,
                 capture_output=True,
-                text=True,
-                check=True,
                 timeout=30,
             )
-        except subprocess.CalledProcessError as e:
-            return 1, {"error": f"git sparse-checkout failed: {e.stderr or e}"}
-    else:
-        try:
-            subprocess.run(
-                ["git", "pull", "--ff-only"],
-                cwd=clone_root,
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=30,
-            )
-        except subprocess.CalledProcessError:
-            print("Warning: git pull failed, using cached data", file=sys.stderr)
 
-        sc_result = subprocess.run(
-            ["git", "sparse-checkout", "list"],
-            cwd=clone_root,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        current_patterns = sc_result.stdout.strip().splitlines() if sc_result.returncode == 0 else []
-        if f"{prefix}/" not in current_patterns and prefix not in current_patterns:
+    try:
+        if not os.path.isdir(os.path.join(clone_root, ".git")):
+            os.makedirs(clone_root, exist_ok=True)
+            try:
+                subprocess.run(
+                    ["git", "clone", "--sparse", "--filter=blob:none", "--depth=1", clone_url, clone_root],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=120,
+                )
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr or ""
+                masked = stderr.replace(gitlab_token, "***")
+                return 1, {"error": f"git clone failed: {masked}"}
+
             try:
                 subprocess.run(
                     ["git", "sparse-checkout", "add", f"{prefix}/"],
@@ -871,7 +842,50 @@ def ensure_gitlab_checkout(source_key, clone_root=None):
                     timeout=30,
                 )
             except subprocess.CalledProcessError as e:
-                return 1, {"error": f"git sparse-checkout add failed: {e.stderr or e}"}
+                return 1, {"error": f"git sparse-checkout failed: {e.stderr or e}"}
+        else:
+            # Inject credentials for pull/sparse-checkout on existing clones
+            subprocess.run(
+                ["git", "remote", "set-url", "origin", clone_url],
+                cwd=clone_root,
+                capture_output=True,
+                timeout=30,
+            )
+
+            try:
+                subprocess.run(
+                    ["git", "pull", "--ff-only"],
+                    cwd=clone_root,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=30,
+                )
+            except subprocess.CalledProcessError:
+                print("Warning: git pull failed, using cached data", file=sys.stderr)
+
+            sc_result = subprocess.run(
+                ["git", "sparse-checkout", "list"],
+                cwd=clone_root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            current_patterns = sc_result.stdout.strip().splitlines() if sc_result.returncode == 0 else []
+            if f"{prefix}/" not in current_patterns and prefix not in current_patterns:
+                try:
+                    subprocess.run(
+                        ["git", "sparse-checkout", "add", f"{prefix}/"],
+                        cwd=clone_root,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=30,
+                    )
+                except subprocess.CalledProcessError as e:
+                    return 1, {"error": f"git sparse-checkout add failed: {e.stderr or e}"}
+    finally:
+        _scrub_origin()
 
     prefix_path = Path(clone_root) / prefix
     if not prefix_path.is_dir():
@@ -1019,7 +1033,7 @@ def push_to_gitlab(feature_dir, clone_root=None):
             timeout=30,
         )
         subprocess.run(
-            ["git", "add", "."],
+            ["git", "add", rel_path],
             cwd=clone_root,
             capture_output=True,
             check=True,
@@ -1120,12 +1134,16 @@ def push_to_gitlab(feature_dir, clone_root=None):
     except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"Warning: Could not create MR: {e}", file=sys.stderr)
 
-    gitlab_url = f"https://{GITLAB_REPO_URL}/-/tree/main/{rel_path}"
+    # Prefer the MR URL (browsable immediately) over the main tree URL
+    # which 404s until the MR is merged
+    main_tree_url = f"https://{GITLAB_REPO_URL}/-/tree/main/{rel_path}"
+    gitlab_url = mr_url or main_tree_url
 
     return 0, {
         "pushed_files": pushed_files,
         "gitlab_path": rel_path,
         "gitlab_url": gitlab_url,
+        "main_tree_url": main_tree_url,
         "commit_sha": commit_sha,
         "timestamp": timestamp,
         "mr_url": mr_url,

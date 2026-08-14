@@ -135,7 +135,7 @@ class TestPushToGitlabMRWorkflow:
         mock_urlopen.return_value = mr_response
 
         with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
-            code, result = push_to_gitlab(str(feature), clone_root=str(clone))
+            code, _result = push_to_gitlab(str(feature), clone_root=str(clone))
 
         assert code == 0
 
@@ -173,7 +173,7 @@ class TestPushToGitlabMRWorkflow:
         mock_urlopen.return_value = mr_response
 
         with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
-            code, result = push_to_gitlab(str(feature), clone_root=str(clone))
+            code, _result = push_to_gitlab(str(feature), clone_root=str(clone))
 
         assert code == 0
         mock_urlopen.assert_called_once()
@@ -357,7 +357,7 @@ class TestPushToGitlabConfigurable:
         mock_urlopen.return_value = mr_response
 
         with patch.dict(os.environ, {"GITLAB_TOKEN": "t", "TEST_PLANS_DATA_DIR": str(clone)}):
-            code, result = push_to_gitlab(str(feature))
+            code, _result = push_to_gitlab(str(feature))
 
         assert code == 0
 

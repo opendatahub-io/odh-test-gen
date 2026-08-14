@@ -72,9 +72,13 @@ class TestEnsureGitlabCheckoutFreshClone:
         with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
             ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
 
-        set_url_calls = [c for c in mock_run.call_args_list if c[0][0] and "set-url" in c[0][0]]
+        set_url_calls = [
+            c for c in mock_run.call_args_list
+            if c[0][0] and "set-url" in c[0][0]
+        ]
         assert len(set_url_calls) >= 1
-        url_arg = set_url_calls[0][0][0][-1]
+        # The final set-url call (in the finally block) must use the credential-free URL
+        url_arg = set_url_calls[-1][0][0][-1]
         assert "test-token" not in url_arg
 
     @patch("subprocess.run")
@@ -95,7 +99,10 @@ class TestEnsureGitlabCheckoutFreshClone:
         with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
             ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
 
-        clone_call = [c for c in mock_run.call_args_list if c[0][0] and "clone" in c[0][0]]
+        clone_call = [
+            c for c in mock_run.call_args_list
+            if c[0][0] and "clone" in c[0][0]
+        ]
         assert len(clone_call) == 1
         assert clone_call[0][1].get("timeout") == 120
 
@@ -113,7 +120,7 @@ class TestEnsureGitlabCheckoutExistingClone:
         mock_run.return_value = MagicMock(returncode=0, stdout="RHAISTRAT\n", stderr="")
 
         with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
-            code, result = ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
+            code, _result = ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
             assert code == 0
 
             git_calls = [c[0][0] for c in mock_run.call_args_list]
@@ -140,7 +147,7 @@ class TestEnsureGitlabCheckoutExistingClone:
         mock_run.side_effect = side_effect
 
         with patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}):
-            code, result = ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
+            code, _result = ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
             assert code == 0
 
         captured = capsys.readouterr()
@@ -178,7 +185,7 @@ class TestEnsureGitlabCheckoutEndswith:
             patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="RHAISTRAT\n", stderr="")),
             patch.dict(os.environ, {"GITLAB_TOKEN": "test-token"}),
         ):
-            code, result = ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
+            code, _result = ensure_gitlab_checkout("RHAISTRAT-1868", clone_root=clone_path)
             assert code == 1
 
 
