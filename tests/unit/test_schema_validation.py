@@ -15,7 +15,8 @@ from scripts.utils.schemas import (
     get_schema_yaml,
     validate,
 )
-from tests.constants import VALID_TEST_CASE_DATA, VALID_TEST_GAPS_DATA, VALID_TEST_PLAN_DATA
+from tests.constants import VALID_TEST_CASE_DATA, VALID_TEST_GAPS_DATA
+from tests.consts.test_plan_constants import VALID_TEST_PLAN_DATA
 
 
 class TestSchemaDetection:
@@ -196,9 +197,8 @@ class TestGapsSchemaValidation:
     @pytest.mark.parametrize(
         "field_name,field_value,should_pass",
         [
-            # status enum validation (Open, Partially Resolved, Resolved)
+            # status enum validation (Open, Resolved only)
             ("status", "Open", True),
-            ("status", "Partially Resolved", True),
             ("status", "Resolved", True),
             ("status", "Closed", False),
         ],

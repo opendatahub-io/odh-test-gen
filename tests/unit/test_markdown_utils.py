@@ -1,10 +1,51 @@
-"""Unit tests for scripts/utils/markdown_utils.py — citation parsing."""
+"""Unit tests for scripts/utils/markdown_utils.py."""
 
 import time
 
 import pytest
 
-from scripts.utils.markdown_utils import has_citation, parse_citations
+from scripts.utils.markdown_utils import extract_section, has_citation, parse_citations
+from tests.consts.markdown_constants import (
+    EXTRACT_GAPS_DUPLICATE_HEADING,
+    EXTRACT_GAPS_EMPTY_THEN_OTHER,
+    EXTRACT_GAPS_LEVEL_ONE_BETWEEN,
+    EXTRACT_GAPS_MISSING,
+    EXTRACT_GAPS_TRAILING_WS_HEADING,
+    EXTRACT_GAPS_WITH_PREFIX_SIBLING,
+    EXTRACT_HEADING_HASH_IN_TITLE,
+)
+
+
+class TestExtractSectionHeadingMatch:
+    @pytest.mark.parametrize(
+        "content,heading,expected_lines,expected_start",
+        [
+            pytest.param(
+                EXTRACT_GAPS_WITH_PREFIX_SIBLING,
+                "## Gaps",
+                ["- gap 1", "### Details", "- gap 2"],
+                3,
+                id="prefix-sibling",
+            ),
+            pytest.param(EXTRACT_GAPS_DUPLICATE_HEADING, "## Gaps", ["- first"], 2, id="duplicate-heading"),
+            pytest.param(EXTRACT_GAPS_TRAILING_WS_HEADING, "## Gaps", ["- gap"], 2, id="trailing-whitespace"),
+            pytest.param(EXTRACT_GAPS_EMPTY_THEN_OTHER, "## Gaps", [], 2, id="empty-section"),
+            pytest.param(EXTRACT_GAPS_LEVEL_ONE_BETWEEN, "## Gaps", ["- gap"], 2, id="level-one-terminates"),
+            pytest.param(EXTRACT_GAPS_MISSING, "## Gaps", [], 0, id="missing-heading"),
+            pytest.param(
+                EXTRACT_HEADING_HASH_IN_TITLE,
+                "## C#",
+                ["- gap", "### Details", "- child"],
+                2,
+                id="hash-in-title",
+            ),
+        ],
+    )
+    def test_complete_heading_first_match_only(self, content, heading, expected_lines, expected_start):
+        lines, start = extract_section(content, heading)
+
+        assert lines == expected_lines
+        assert start == expected_start
 
 
 class TestCitationParsing:
@@ -82,6 +123,22 @@ class TestCitationRejectsIncompleteFields:
         text = "Verify isolation (NFR: Multi-tenancy — data is isolated)"
         assert has_citation(text) is True
         assert parse_citations(text)[0] == {"kind": "NFR", "number": None, "category": "Multi-tenancy"}
+
+    def test_nfr_category_with_parenthetical_qualifier_is_not_truncated(self):
+        # Real STRAT documents define sibling categories that differ only by a parenthetical
+        # qualifier, e.g. "Security" vs "Security (workspace isolation)" vs "Security (transport)" —
+        # the inner ")" must not be mistaken for the citation's own closing paren.
+        text = "Verify namespace scoping (NFR: Security (workspace isolation) — tenant isolation required)"
+        assert has_citation(text) is True
+        assert parse_citations(text)[0] == {
+            "kind": "NFR",
+            "number": None,
+            "category": "Security (workspace isolation)",
+        }
+
+    def test_bare_nfr_category_still_distinct_from_parenthetical_sibling(self):
+        text = "Verify auth (NFR: Security — SA-token auth required)"
+        assert parse_citations(text)[0] == {"kind": "NFR", "number": None, "category": "Security"}
 
 
 class TestCitationSeparatorVariants:
