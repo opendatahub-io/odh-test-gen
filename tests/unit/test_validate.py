@@ -20,14 +20,14 @@ from scripts.validate import (
     validate_infra_scope,
     validate_interface_coverage,
     validate_interface_types,
-    validate_scope,
     validate_structure,
     validate_tc_counts,
     validate_tc_scope,
     validate_tc_traceability,
     validate_test_cases,
 )
-from tests.constants import (
+from scripts.validate_test_scope import load_and_validate as validate_scope
+from tests.consts.test_plan_constants import (
     TESTPLAN_AC_BULLET_FORMAT,
     TESTPLAN_AC_CITED,
     TESTPLAN_AC_MISSING,
@@ -35,31 +35,50 @@ from tests.constants import (
     TESTPLAN_BROAD_LEVELS,
     TESTPLAN_CLEAN_INFRA,
     TESTPLAN_CONFIG_INTERFACES,
+    TESTPLAN_DATABASE_INTERFACES,
     TESTPLAN_DEV_TOOLING_INFRA,
     TESTPLAN_E2E_ONLY,
+    TESTPLAN_EMPTY_TYPE_INTERFACES,
     TESTPLAN_FEATURE_CATEGORIES,
     TESTPLAN_INTERFACE_COVERAGE_EMPTY_6_2_CELL,
     TESTPLAN_INTERFACE_COVERAGE_EMPTY_9_2_CELL,
+    TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_E2E_6_2,
+    TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_MIXED_6_2,
+    TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_NO_E2E_OR_UI_6_2,
+    TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_PLACEHOLDER_TEMPLATE_6_2,
+    TESTPLAN_INTERFACE_COVERAGE_EXTRA_6_2_ROW,
     TESTPLAN_INTERFACE_COVERAGE_FULL,
     TESTPLAN_INTERFACE_COVERAGE_MISSING_6_2,
     TESTPLAN_INTERFACE_COVERAGE_MISSING_9_2,
+    TESTPLAN_INTERFACE_COVERAGE_MIXED_6_2,
+    TESTPLAN_INTERFACE_COVERAGE_NO_E2E_OR_UI_6_2,
     TESTPLAN_INTERFACE_COVERAGE_PENDING,
     TESTPLAN_INTERFACE_COVERAGE_PLACEHOLDER_6_2,
     TESTPLAN_INTERFACE_COVERAGE_PLACEHOLDER_SCENARIO_CELL,
     TESTPLAN_INTERFACE_COVERAGE_PLACEHOLDER_TC_CELL,
+    TESTPLAN_INTERFACE_COVERAGE_UI_ONLY_6_2,
     TESTPLAN_INTERFACE_TYPES_BLANK_HEADER_CELL,
     TESTPLAN_MISSING_SECTIONS,
+    TESTPLAN_MISSING_TYPE_COLUMN_INTERFACES,
     TESTPLAN_NO_SECTION_13,
     TESTPLAN_NO_SECTION_21,
     TESTPLAN_NO_SECTION_52,
+    TESTPLAN_NO_SEPARATOR_INTERFACES,
+    TESTPLAN_REST_WRONG_CASE_INTERFACES,
     TESTPLAN_VALID_CATEGORIES,
     TESTPLAN_VALID_INTERFACES,
-    VALID_TC_CONTENT,
-    VALID_TEST_GAPS_DATA,
     VALID_TEST_PLAN_DATA,
     VALID_TESTPLAN_CONTENT,
 )
+from tests.constants import VALID_TC_CONTENT, VALID_TEST_GAPS_DATA
 from tests.helpers import write_testplan_with_objectives, write_valid_testplan
+
+E2E_OR_UI_DIAGNOSTIC_KEY = "missing_e2e_or_ui_in_6_2"
+
+
+def assert_e2e_or_ui_diagnostic(result, expected):
+    assert E2E_OR_UI_DIAGNOSTIC_KEY in result
+    assert result[E2E_OR_UI_DIAGNOSTIC_KEY] == expected
 
 
 @pytest.fixture
@@ -245,6 +264,17 @@ class TestValidateAll:
         assert result["valid"] is False
         assert result["test_cases"]["valid"] is False
 
+    def test_flags_disallowed_test_level_in_scope(self, tmp_path):
+        """validate_all must catch Section 2.1 scope violations (not just infra/tc scope)."""
+        write_valid_testplan(tmp_path / "TestPlan.md")
+        testplan_path = tmp_path / "TestPlan.md"
+        testplan_path.write_text(testplan_path.read_text().replace("E2E System Testing", "Unit Testing"))
+
+        result = validate_all(str(tmp_path))
+
+        assert result["valid"] is False
+        assert result["test_scope"]["valid"] is False
+
 
 class TestValidateScope:
     """Tests for validate_scope — disallowed test levels in Section 2.1."""
@@ -253,7 +283,7 @@ class TestValidateScope:
         testplan = tmp_path / "TestPlan.md"
         testplan.write_text(TESTPLAN_E2E_ONLY)
 
-        result = validate_scope(str(testplan))
+        result = validate_scope(str(testplan), checks_dir="scripts/checks", teams=None)
 
         assert result["valid"] is True
         assert result["violations"] == []
@@ -262,26 +292,27 @@ class TestValidateScope:
         testplan = tmp_path / "TestPlan.md"
         testplan.write_text(TESTPLAN_BROAD_LEVELS)
 
-        result = validate_scope(str(testplan))
+        result = validate_scope(str(testplan), checks_dir="scripts/checks", teams=None)
 
         assert result["valid"] is False
         assert len(result["violations"]) == 3
-        violation_names = [v["level"] for v in result["violations"]]
+        violation_names = [v["matched_pattern"] for v in result["violations"]]
         assert "API Integration Testing" in violation_names
         assert "Data Validation Testing" in violation_names
-        assert "Functional Testing" in violation_names
+        # Functional Testing is caught by regex pattern
+        assert any("functional" in pattern.lower() for pattern in violation_names)
 
     def test_missing_section_passes(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
         testplan.write_text(TESTPLAN_NO_SECTION_21)
 
-        result = validate_scope(str(testplan))
+        result = validate_scope(str(testplan), checks_dir="scripts/checks", teams=None)
 
         assert result["valid"] is True
         assert result["violations"] == []
 
     def test_file_not_found(self):
-        result = validate_scope("/nonexistent/TestPlan.md")
+        result = validate_scope("/nonexistent/TestPlan.md", checks_dir="scripts/checks", teams=None)
 
         assert result["valid"] is False
         assert "error" in result
@@ -614,7 +645,7 @@ class TestValidateFeatureName:
 
 
 class TestValidateInterfaceTypes:
-    """Tests for validate_interface_types — Config-type entries in Section 4."""
+    """Tests for validate_interface_types — Section 4 Type is a positive allowlist."""
 
     def test_valid_types_pass(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -623,7 +654,7 @@ class TestValidateInterfaceTypes:
         result = validate_interface_types(str(testplan))
 
         assert result["valid"] is True
-        assert result["config_entries"] == []
+        assert result["disallowed_entries"] == []
 
     def test_config_type_warns(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -632,10 +663,39 @@ class TestValidateInterfaceTypes:
         result = validate_interface_types(str(testplan))
 
         assert result["valid"] is False
-        assert len(result["config_entries"]) == 2
-        interfaces = [e["interface"] for e in result["config_entries"]]
+        assert "header_error" not in result
+        config_disallowed = [e for e in result["disallowed_entries"] if e["type"] == "Config"]
+        assert len(config_disallowed) == 2
+        interfaces = [e["interface"] for e in config_disallowed]
         assert "`config.yaml`" in interfaces
         assert "`BASE_URL` env var" in interfaces
+        for entry in config_disallowed:
+            assert isinstance(entry["line_number"], int)
+
+    @pytest.mark.parametrize(
+        "content, disallowed_type, interface",
+        [
+            (TESTPLAN_DATABASE_INTERFACES, "Database", "legacy---store"),
+            (TESTPLAN_REST_WRONG_CASE_INTERFACES, "ReST", "Chat completions API"),
+            (TESTPLAN_EMPTY_TYPE_INTERFACES, "", "Widget API"),
+            (TESTPLAN_NO_SEPARATOR_INTERFACES, "Database", "Unseparated datastore"),
+            (TESTPLAN_MISSING_TYPE_COLUMN_INTERFACES, "", "Single-cell interface"),
+        ],
+        ids=["Database", "ReST", "empty_type", "no_separator", "missing_type_column"],
+    )
+    def test_disallowed_section4_types_fail(self, tmp_path, content, disallowed_type, interface):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(content)
+
+        result = validate_interface_types(str(testplan))
+
+        assert result["valid"] is False
+        assert "header_error" not in result
+        matching = [
+            e for e in result["disallowed_entries"] if e["interface"] == interface and e["type"] == disallowed_type
+        ]
+        assert matching
+        assert isinstance(matching[0]["line_number"], int)
 
     def test_no_section_passes(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -644,7 +704,7 @@ class TestValidateInterfaceTypes:
         result = validate_interface_types(str(testplan))
 
         assert result["valid"] is True
-        assert result["config_entries"] == []
+        assert result["disallowed_entries"] == []
 
     def test_blank_header_cell_reports_real_header(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -676,6 +736,103 @@ class TestValidateInterfaceCoverage:
         assert result["valid"] is True
         assert result["missing_in_9_2"] == []
         assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
+
+    @pytest.mark.parametrize(
+        "fixture",
+        [TESTPLAN_INTERFACE_COVERAGE_UI_ONLY_6_2, TESTPLAN_INTERFACE_COVERAGE_FULL],
+        ids=["ui-only", "e2e-only"],
+    )
+    def test_section_6_2_rows_with_e2e_or_ui_references_pass(self, tmp_path, fixture):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(fixture)
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is True
+        assert result["section_6_2_populated"] is True
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
+
+    def test_section_6_2_rows_with_neither_e2e_nor_ui_reference_fail(self, tmp_path):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(TESTPLAN_INTERFACE_COVERAGE_NO_E2E_OR_UI_6_2)
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is False
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, ["`/v1/chat/completions`", "`/v1/models`"])
+
+    def test_mixed_ui_and_e2e_section_6_2_rows_pass(self, tmp_path):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(TESTPLAN_INTERFACE_COVERAGE_MIXED_6_2)
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is True
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
+
+    def test_duplicate_section_6_2_rows_each_satisfying_e2e_or_ui_pass(self, tmp_path):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_MIXED_6_2)
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is True
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
+
+    def test_satisfying_duplicate_cannot_mask_duplicate_without_e2e_or_ui(self, tmp_path):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_NO_E2E_OR_UI_6_2)
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is False
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, ["**/v1/chat/completions**"])
+
+    @pytest.mark.parametrize(
+        "scenario_reference",
+        ["", "TBD", "N/A", "-"],
+        ids=["blank", "tbd", "n-a", "dash"],
+    )
+    def test_satisfying_duplicate_cannot_mask_placeholder_duplicate(self, tmp_path, scenario_reference):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(
+            TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_PLACEHOLDER_TEMPLATE_6_2.replace(
+                "__SCENARIO_REFERENCE__", scenario_reference
+            )
+        )
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is False
+        assert result["section_6_2_populated"] is True
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, ["**/v1/chat/completions**"])
+
+    def test_duplicate_section_6_2_rows_with_e2e_references_pass(self, tmp_path):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(TESTPLAN_INTERFACE_COVERAGE_DUPLICATE_E2E_6_2)
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is True
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
+
+    def test_extra_section_6_2_rows_are_outside_declared_interface_contract(self, tmp_path):
+        testplan = tmp_path / "TestPlan.md"
+        testplan.write_text(TESTPLAN_INTERFACE_COVERAGE_EXTRA_6_2_ROW)
+
+        result = validate_interface_coverage(str(testplan))
+
+        assert result["valid"] is True
+        assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
 
     def test_missing_in_9_2_fails(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -694,6 +851,7 @@ class TestValidateInterfaceCoverage:
 
         assert result["valid"] is False
         assert result["missing_in_6_2"] == ["`/v1/models`"]
+        assert_e2e_or_ui_diagnostic(result, [])
 
     def test_placeholder_6_2_skipped(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -704,6 +862,7 @@ class TestValidateInterfaceCoverage:
         assert result["valid"] is True
         assert result["section_6_2_populated"] is False
         assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
 
     def test_no_section_4_passes(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -713,6 +872,7 @@ class TestValidateInterfaceCoverage:
 
         assert result["valid"] is True
         assert result["interfaces"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
 
     def test_pending_interfaces_excluded_from_missing(self, tmp_path):
         testplan = tmp_path / "TestPlan.md"
@@ -723,6 +883,7 @@ class TestValidateInterfaceCoverage:
         assert result["valid"] is True
         assert result["missing_in_9_2"] == []
         assert result["missing_in_6_2"] == []
+        assert_e2e_or_ui_diagnostic(result, [])
         assert result["pending"] == ["`/v1/models`"]
         assert "`/v1/models`" in result["interfaces"]
 
@@ -759,6 +920,7 @@ class TestValidateInterfaceCoverage:
 
         assert result["valid"] is False
         assert result["missing_in_6_2"] == ["`/v1/models`"]
+        assert_e2e_or_ui_diagnostic(result, [])
 
 
 class TestValidateInfraScope:

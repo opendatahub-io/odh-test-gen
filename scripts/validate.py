@@ -10,7 +10,6 @@ Usage:
     uv run python scripts/validate.py gap-counts <feature_dir> <resolved> <unresolved> <new>
     uv run python scripts/validate.py test-cases <feature_dir>
     uv run python scripts/validate.py all <feature_dir>
-    uv run python scripts/validate.py scope-check <testplan_path>
     uv run python scripts/validate.py ac-citations <testplan_path> [--ac-count N] [--nfr-category CATEGORY ...]
     uv run python scripts/validate.py ac-coverage <testplan_path> --ac-count N
     uv run python scripts/validate.py structure <testplan_path>
@@ -45,6 +44,7 @@ from scripts.utils.markdown_utils import (
     parse_table_rows,
 )
 from scripts.utils.schemas import TEMPLATE_HEADINGS, TESTPLAN_STRUCTURE, detect_schema_type
+from scripts.validate_test_scope import load_and_validate as validate_test_scope
 
 
 def validate_feature_dir(feature_dir: str) -> str:
@@ -183,27 +183,6 @@ def validate_test_cases(feature_dir: str, schema_type: str = "test-case") -> dic
         "failed": len(errors),
         "errors": errors,
     }
-
-
-def validate_scope(testplan_path: str) -> dict:
-    """Check Section 2.1 for disallowed test level names."""
-    path = Path(testplan_path)
-    if not path.exists():
-        return {"valid": False, "error": f"File not found: {testplan_path}"}
-
-    content = path.read_text()
-    section_lines, start_line = extract_section(content, TEMPLATE_HEADINGS["2.1"])
-    if not section_lines:
-        return {"valid": True, "violations": []}
-
-    violations = [
-        {"level": level_name, "line_number": start_line + i}
-        for i, line in enumerate(section_lines)
-        for level_name in TESTPLAN_STRUCTURE["disallowed_test_levels"]
-        if f"**{level_name}**" in line
-    ]
-
-    return {"valid": not violations, "violations": violations}
 
 
 def _citation_reason(citation: dict, ac_count: int, nfr_categories: list) -> str | None:
@@ -375,10 +354,18 @@ def validate_category_prefixes(testplan_path: str) -> dict:
 
 
 INTERFACE_TABLE_COLUMNS = ["Interface", "Type", "Purpose"]
+ALLOWED_INTERFACE_TYPES = frozenset({"REST", "gRPC", "UI", "CLI", "CRD"})
+MARKDOWN_SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
+E2E_OR_UI_REFERENCE_RE = re.compile(r"(?<![\w-])TC-(?:E2E|UI)-[A-Za-z0-9]+(?![\w-])")
+
+
+def _is_markdown_separator_row(columns: list[str]) -> bool:
+    """True when every cell is a Markdown table separator cell (e.g. ``---``, ``:---:``)."""
+    return bool(columns) and all(MARKDOWN_SEPARATOR_CELL_RE.match(c.strip()) for c in columns)
 
 
 def validate_interface_types(testplan_path: str) -> dict:
-    """Check Section 4 for Config-type entries and correct table columns (no Priority)."""
+    """Check Section 4 for allowed interface types and correct table columns (no Priority)."""
     path = Path(testplan_path)
     if not path.exists():
         return {"valid": False, "error": f"File not found: {testplan_path}"}
@@ -386,42 +373,50 @@ def validate_interface_types(testplan_path: str) -> dict:
     content = path.read_text()
     section_lines, start_line = extract_section(content, TEMPLATE_HEADINGS["4"])
     if not section_lines:
-        return {"valid": True, "config_entries": [], "header": None}
+        return {"valid": True, "disallowed_entries": [], "header": None}
 
-    table_re = re.compile(r"^\|\s*(.+?)\s*\|\s*Config\s*\|", re.IGNORECASE)
-    config_entries = []
+    disallowed_entries = []
     header = None
     header_error = None
-    prev_row = None  # most recent non-separator pipe row: (columns, line_number)
+    first_pipe_row = True
     for i, line in enumerate(section_lines):
-        match = table_re.match(line)
-        if match:
-            config_entries.append({"interface": match.group(1).strip(), "line_number": start_line + i})
-
         stripped = line.strip()
         if not (stripped.startswith("|") and stripped.endswith("|")):
             continue
-        if "---" in stripped:
-            # The header is the pipe row immediately above the separator, even if it has a blank cell.
-            if header is None and prev_row is not None:
-                header, header_line = prev_row
-                if header != INTERFACE_TABLE_COLUMNS:
-                    header_error = {
-                        "expected": INTERFACE_TABLE_COLUMNS,
-                        "found": header,
-                        "line_number": header_line,
-                    }
-        else:
-            prev_row = ([c.strip() for c in stripped.strip("|").split("|")], start_line + i)
 
-    result = {"valid": not config_entries and header_error is None, "config_entries": config_entries, "header": header}
+        columns = [c.strip() for c in stripped.strip("|").split("|")]
+        if _is_markdown_separator_row(columns):
+            continue
+
+        line_number = start_line + i
+        if first_pipe_row:
+            header = columns
+            first_pipe_row = False
+            if header != INTERFACE_TABLE_COLUMNS:
+                header_error = {
+                    "expected": INTERFACE_TABLE_COLUMNS,
+                    "found": header,
+                    "line_number": line_number,
+                }
+            continue
+
+        interface = columns[0] if columns else ""
+        type_cell = columns[1] if len(columns) > 1 else ""
+        if type_cell not in ALLOWED_INTERFACE_TYPES:
+            disallowed_entries.append({"interface": interface, "type": type_cell, "line_number": line_number})
+
+    result = {
+        "valid": not disallowed_entries and header_error is None,
+        "disallowed_entries": disallowed_entries,
+        "header": header,
+    }
     if header_error:
         result["header_error"] = header_error
     return result
 
 
 def validate_interface_coverage(testplan_path: str) -> dict:
-    """Check Section 9.2 and Section 6.2 tables list every interface from Section 4."""
+    """Check Section 9.2 and Section 6.2 cover Section 4 interfaces and E2E/UI references."""
     path = Path(testplan_path)
     if not path.exists():
         return {"valid": False, "error": f"File not found: {testplan_path}"}
@@ -444,6 +439,7 @@ def validate_interface_coverage(testplan_path: str) -> dict:
             "pending": [],
             "missing_in_9_2": [],
             "missing_in_6_2": [],
+            "missing_e2e_or_ui_in_6_2": [],
             "section_9_2_populated": False,
             "section_6_2_populated": False,
         }
@@ -463,18 +459,42 @@ def validate_interface_coverage(testplan_path: str) -> dict:
     section62_lines, _ = extract_section(content, TEMPLATE_HEADINGS["6.2"])
     rows_62 = parse_table_rows(section62_lines)
     populated_62 = any(row and row[0] for row in rows_62)
-    covered_62 = {
-        normalize_interface(row[0]) for row in rows_62 if row and row[0] and len(row) > 1 and is_filled_cell(row[1])
-    }
+    populated_rows_62 = [row for row in rows_62 if row and row[0] and len(row) > 1 and is_filled_cell(row[1])]
+    covered_62 = {normalize_interface(row[0]) for row in populated_rows_62}
     skip_62 = covered_62 | pending_set
     missing_in_6_2 = [i for i in interfaces if normalize_interface(i) not in skip_62] if populated_62 else []
+    declared_interfaces = {normalize_interface(i) for i in interfaces}
+    declared_rows_62 = [row for row in rows_62 if row and row[0] and normalize_interface(row[0]) in declared_interfaces]
+    missing_e2e_or_ui_interfaces = set()
+    # Check every declared row independently, including blank/placeholder cells: a duplicate row
+    # with a valid reference must not mask another duplicate row for the same interface that has
+    # neither reference. Keep lone blank/placeholder rows under missing_in_6_2 only.
+    for row in declared_rows_62:
+        interface = normalize_interface(row[0])
+        reference_cell = row[1] if len(row) > 1 else ""
+        if (
+            interface in declared_interfaces
+            and interface not in pending_set
+            and not E2E_OR_UI_REFERENCE_RE.search(reference_cell)
+        ):
+            missing_e2e_or_ui_interfaces.add(interface)
+    missing_e2e_or_ui_in_6_2 = (
+        [
+            i
+            for i in interfaces
+            if normalize_interface(i) in covered_62 and normalize_interface(i) in missing_e2e_or_ui_interfaces
+        ]
+        if populated_62
+        else []
+    )
 
     return {
-        "valid": not missing_in_9_2 and not missing_in_6_2,
+        "valid": not missing_in_9_2 and not missing_in_6_2 and not missing_e2e_or_ui_in_6_2,
         "interfaces": interfaces,
         "pending": pending,
         "missing_in_9_2": missing_in_9_2,
         "missing_in_6_2": missing_in_6_2,
+        "missing_e2e_or_ui_in_6_2": missing_e2e_or_ui_in_6_2,
         "section_9_2_populated": populated_92,
         "section_6_2_populated": populated_62,
     }
@@ -685,7 +705,7 @@ def check_interactive() -> dict:
     return {"interactive": True, "reason": "no CI or CLAUDE_NON_INTERACTIVE env var detected"}
 
 
-def validate_all(feature_dir: str) -> dict:
+def validate_all(feature_dir: str, checks_dir: str = "scripts/checks") -> dict:
     """Run all validations on a feature directory.
 
     Only TestPlan.md is required. TestPlanGaps.md and test_cases/ are
@@ -709,13 +729,13 @@ def validate_all(feature_dir: str) -> dict:
             frontmatter_results.append({"file": artifact, "valid": False, "error": str(e)})
 
     tc_result = validate_test_cases(feature_dir)
-    scope_result = validate_scope(str(testplan_path))
     ac_result = validate_ac_citations(str(testplan_path))
     structure_result = validate_structure(str(testplan_path))
     category_result = validate_category_prefixes(str(testplan_path))
     interface_result = validate_interface_types(str(testplan_path))
     interface_coverage_result = validate_interface_coverage(str(testplan_path))
     infra_result = validate_infra_scope(str(testplan_path))
+    test_scope_result = validate_test_scope(str(testplan_path), checks_dir)
     tc_counts_result = validate_tc_counts(feature_dir)
     tc_scope_result = validate_tc_scope(feature_dir)
     tc_traceability_result = validate_tc_traceability(feature_dir)
@@ -723,13 +743,13 @@ def validate_all(feature_dir: str) -> dict:
     valid = (
         all(f["valid"] for f in frontmatter_results)
         and tc_result["valid"]
-        and scope_result["valid"]
         and ac_result["valid"]
         and structure_result["valid"]
         and category_result["valid"]
         and interface_result["valid"]
         and interface_coverage_result["valid"]
         and infra_result["valid"]
+        and test_scope_result["valid"]
         and tc_counts_result["valid"]
         and tc_scope_result["valid"]
         and tc_traceability_result["valid"]
@@ -739,13 +759,13 @@ def validate_all(feature_dir: str) -> dict:
         "valid": valid,
         "frontmatter": frontmatter_results,
         "test_cases": tc_result,
-        "scope": scope_result,
         "ac_citations": ac_result,
         "structure": structure_result,
         "category_prefixes": category_result,
         "interface_types": interface_result,
         "interface_coverage": interface_coverage_result,
         "infra_scope": infra_result,
+        "test_scope": test_scope_result,
         "tc_counts": tc_counts_result,
         "tc_scope": tc_scope_result,
         "tc_traceability": tc_traceability_result,
@@ -772,13 +792,7 @@ def cmd_test_cases(args):
 
 
 def cmd_all(args):
-    result = validate_all(args.feature_dir)
-    print(json.dumps(result, indent=2))
-    sys.exit(0 if result["valid"] else 1)
-
-
-def cmd_scope_check(args):
-    result = validate_scope(args.testplan_path)
+    result = validate_all(args.feature_dir, args.checks_dir)
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["valid"] else 1)
 
@@ -880,11 +894,8 @@ def main():
 
     p_all = subparsers.add_parser("all", help="Run all validations on a feature directory")
     p_all.add_argument("feature_dir", help="Path to feature directory")
+    p_all.add_argument("--checks-dir", default="scripts/checks", help="Base directory for check config files")
     p_all.set_defaults(func=cmd_all)
-
-    p_scope = subparsers.add_parser("scope-check", help="Check Section 2.1 for disallowed test levels")
-    p_scope.add_argument("testplan_path", help="Path to TestPlan.md")
-    p_scope.set_defaults(func=cmd_scope_check)
 
     p_ac = subparsers.add_parser("ac-citations", help="Check Section 1.3 objectives for AC/NFR citations")
     p_ac.add_argument("testplan_path", help="Path to TestPlan.md")
@@ -924,7 +935,9 @@ def main():
     p_feature_name.add_argument("feature_name", help="Feature directory name to validate")
     p_feature_name.set_defaults(func=cmd_feature_name)
 
-    p_iface = subparsers.add_parser("interface-types", help="Check Section 4 for Config-type entries")
+    p_iface = subparsers.add_parser(
+        "interface-types", help="Check Section 4 interface types against REST/gRPC/UI/CLI/CRD allowlist"
+    )
     p_iface.add_argument("testplan_path", help="Path to TestPlan.md")
     p_iface.set_defaults(func=cmd_interface_types)
 

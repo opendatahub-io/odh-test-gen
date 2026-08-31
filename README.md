@@ -1,6 +1,9 @@
 # Test Plan
 
-End-to-end test planning workflow for RHOAI: generate test plans from strategies, create test cases, implement executable automation code, verify UI tests against live clusters via Playwright, publish to GitHub with PR creation, resolve review feedback, and score quality with automated rubrics using parallel sub-agent analysis.
+End-to-end test planning workflow for RHOAI: generate E2E/UI-focused test plans from Jira strategies,
+create traceable test cases, implement executable automation code, verify UI tests against live clusters
+via Playwright, publish to GitHub, resolve review feedback, and score plans with deterministic evidence
+gates and automated rubrics.
 
 ## Skills
 
@@ -11,20 +14,19 @@ End-to-end test planning workflow for RHOAI: generate test plans from strategies
 | `/test-plan-create` | Generate a test plan from a strategy (RHAISTRAT or RHOAIENG), with optional ADR |
 | `/test-plan-create-cases` | Generate individual test case files from an existing test plan |
 | `/test-plan-update` | Update test plan with new docs (ADR, API specs), re-analyze, bump version |
-| `/test-plan-case-implement` | Generate executable test automation code from TC specifications with intelligent placement |
+| `/test-plan-case-implement` | Generate executable test automation code from TC specifications (default target: opendatahub-tests; skips TC-UI-*) |
 | `/test-plan-ui-verify` | Verify UI test cases from a PR against a live ODH/RHOAI cluster via Playwright |
 | `/test-plan-publish` | Publish test plan artifacts to GitHub — branch, commit, and open a PR |
 | `/test-plan-resolve-feedback` | Assess PR review comments, let the user decide what to apply, and push updates |
 | `/test-plan-score` | Score an existing test plan using quality rubric (without auto-revision) |
 
-### Sub-agents (9 internal skills, forked with `context: fork`)
+### Sub-agents (8 internal skills: 7 forked, 1 in-parent)
 
 | Skill | Description |
 |-------|-------------|
 | `test-plan-analyze-endpoints` | Extract feature scope, test objectives, and API endpoints from docs |
 | `test-plan-analyze-risks` | Analyze strategy/ADR to determine test levels, types, priorities, risks |
 | `test-plan-analyze-infra` | Identify test environment, data, infrastructure requirements |
-| `test-plan-analyze-placement` | Recommend test placement (component repo vs downstream) |
 | `test-plan-merge` | Intelligently merge new analyzer findings into existing test plan |
 | `test-plan-resolve-gaps` | Cross-reference gaps with new findings to determine what's resolved |
 | `test-plan-review` | Review test plan for completeness, consistency, and quality with auto-revision |
@@ -54,7 +56,7 @@ uv sync --extra dev
 
 Use skills:
 ```bash
-# Will prompt for artifact location (default: ~/Code/opendatahub-test-plans)
+# Will prompt for artifact location (default: ~/Code/opendatahub-test-plans/plans/)
 /test-plan-create RHAISTRAT-400
 
 # Auto-uses location from /test-plan-create
@@ -79,7 +81,7 @@ Skills are available from `skills/` directory.
 
 **Note**: Skills use symlinks for shared utilities (`_common/scripts → ../../scripts`). Both installation methods clone the full repository, so symlinks resolve correctly.
 
-Each skill includes an `argument-hint` field in its frontmatter for autocomplete guidance when typing slash commands.
+User-invocable skills define frontmatter used for slash-command discovery and invocation.
 
 ## Artifact Location
 
@@ -132,23 +134,43 @@ Contributors testing skills can use `--output-dir` to force creation in the curr
 
 ## Architecture
 
-### v1.0.0 Design Principles
+### Design Principles
 
 **Deterministic Scripts** - Procedural logic extracted to Python scripts (no LLM calls):
-- Feature validation, component detection, TC filtering, file mapping
-- AST-based function extraction, score parsing, frontmatter updates
-- 22 tested Python scripts
+- Feature validation, citation and scope evidence, component detection, test-case filtering, and file mapping
+- AST-based function extraction, score parsing, frontmatter/version updates, Jira operations, and gap consolidation
+- Deterministic operations are covered by unit and integration tests
 
 **LLMs Only Where Necessary** - Semantic understanding and code generation:
 - Writing test code, quality scoring, semantic function matching
 - Analyzing requirements, merging findings, resolving gaps
 
-**Sub-Agent Orchestration** - 9 internal skills:
-- **Forked (8 with `context: fork`)**: Analyzers (endpoints, risks, infra, placement), workflow (merge, resolve-gaps), quality (generate-test-file, score-test-function) — clean isolation, parallel execution
+**Sub-Agent Orchestration** - 8 internal skills:
+- **Forked (7 with `context: fork`)**: Analyzers (endpoints, risks, infra), workflow (merge, resolve-gaps), quality (generate-test-file, score-test-function) — clean isolation, parallel execution
 - **In-parent (1 without fork)**: review — writes persistent files in parent context
 - All invoked via Skill tool, deterministic return values
 
-**No Shell Parsing** - Scripts output JSON, Claude extracts values directly (no jq commands needed)
+**CLI Orchestration** - Scripts own deterministic parsing and validation, return structured JSON where
+consumed by skills, and use standard command-line JSON tooling to pass values between workflow steps.
+
+### Quality Evidence Gate
+
+`validate_quality_evidence.py` produces the scope coverage and actionability evidence payloads
+from the test plan and resolved strategy: `scope_coverage_result` and `actionability_result`.
+The persisted review gate (`enforce_citation_gate.py`) can cap Scope Fidelity/Specificity/Actionability
+when deterministic evidence contradicts a 2/2 rubric score. The stateless scorer gate
+(`cap_scope_fidelity.py`) applies the same Scope Fidelity/Specificity/Actionability caps before
+`test-plan-score` presents its result, so scorer compliance is not trusted.
+
+The shared `build_citation_inputs.py` gate also checks AC citations, AC coverage, interface coverage,
+scope markers, and actionability before review or scoring. Once Section 6.2 is populated, each declared
+non-pending interface row must contain at least one `TC-E2E-*` or `TC-UI-*` reference. Empty
+pre-create-cases matrices remain pending/valid, and duplicate rows are checked independently. The
+`missing_e2e_or_ui_in_6_2` diagnostic identifies declared interfaces with a row lacking both references.
+
+During scope analysis, the endpoint analyzer records in `## Gaps` any in-scope Section 1.2 item omitted
+from Section 1.3 because it has no backing acceptance criterion. The gap consolidator carries that
+disclosure into `TestPlanGaps.md`; it does not invent a test objective or infer additional exclusions.
 
 ## Usage
 
@@ -255,7 +277,6 @@ export CLAUDE_NON_INTERACTIVE=true
                     │                     │
                     │                     ├── preflight.py (validation + detection)
                     │                     ├── filter_test_cases.py, map_test_files.py
-                    │                     ├── test-plan-analyze-placement
                     │                     └── test-plan-generate-test-file (parallel per file)
                     │                         ├── list_test_functions.py (AST)
                     │                         ├── test-plan-score-test-function (per function)
@@ -300,7 +321,7 @@ Skills support non-interactive mode for CI environments:
 
 ### Required for Specific Features
 - **Jira integration**: Environment variables configured (for `/test-plan-create`, `/test-plan-review`, `/test-plan-score`):
-  - `JIRA_URL`: Base URL for your Jira instance (e.g., `https://issues.redhat.com`)
+  - `JIRA_URL`: Base URL for your Jira instance (e.g., `https://redhat.atlassian.net`)
   - `JIRA_USER`: Username or email for authentication
   - `JIRA_TOKEN`: [API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/) for authentication
 - **GitHub publishing**: [GitHub CLI (`gh`)](https://cli.github.com/) installed and authenticated (for `/test-plan-publish` and `/test-plan-resolve-feedback`)
@@ -310,7 +331,7 @@ Skills support non-interactive mode for CI environments:
 
 ```
 .claude-plugin/
-└── plugin.json             # Plugin metadata (v1.0.0)
+└── plugin.json             # Plugin metadata
 
 skills/
 ├── test-plan-create/
@@ -321,8 +342,6 @@ skills/
 ├── test-plan-analyze-risks/
 │   └── SKILL.md
 ├── test-plan-analyze-infra/
-│   └── SKILL.md
-├── test-plan-analyze-placement/
 │   └── SKILL.md
 ├── test-plan-merge/
 │   └── SKILL.md
@@ -374,7 +393,9 @@ scripts/
 ├── parse_strat.py          # Parse STRAT sections; snapshot strategy files for test-plan-create
 ├── resolve_strategy.py     # Snapshot-primary strategy resolution for test-plan-review/score
 ├── build_citation_inputs.py # Build citation gate inputs (AC/NFR/interface coverage) from a strategy
-├── enforce_citation_gate.py # Deterministically cap Scope Fidelity when citation checks fail
+├── validate_quality_evidence.py # Produce scope coverage and actionability evidence payloads
+├── enforce_citation_gate.py # Deterministically cap Scope Fidelity/Specificity/Actionability
+├── cap_scope_fidelity.py   # Stateless scorer enforcement for Scope Fidelity/Specificity/Actionability
 ├── filter_for_revision.py # Decide whether a test plan review warrants revision
 ├── preserve_review_state.py # Save/restore cumulative review state across re-assessment cycles
 ├── add_jira_labels.py      # Add labels to Jira issues (CLI wrapper)
@@ -434,7 +455,7 @@ uv run pytest tests/ -v
 
 Run a specific test file:
 ```bash
-uv run pytest tests/test_schema_validation.py -v
+uv run pytest tests/unit/test_schema_validation.py -v
 ```
 
 Run tests with coverage:
@@ -444,7 +465,7 @@ uv run pytest tests/ -v --cov=scripts --cov-report=term-missing
 
 Run a specific test:
 ```bash
-uv run pytest tests/test_schema_validation.py::TestPlanSchemaValidation::test_field_validation -v
+uv run pytest tests/unit/test_schema_validation.py::TestPlanSchemaValidation::test_field_validation -v
 ```
 
 ### Test Structure
