@@ -25,6 +25,7 @@ REVISE_PROMPT_PATH = REPO_ROOT / "skills" / "test-plan-review" / "prompts" / "re
 HUMAN_REVIEW_GUIDE_PATH = REPO_ROOT / "docs" / "human-review-guide.md"
 
 E2E_OR_UI_DIAGNOSTIC_KEY = "missing_e2e_or_ui_in_6_2"
+_EXPLICIT_RESOLUTION_PATH = "explicit resolution path"
 
 _E2E_COVERAGE_CONTRACT_PATHS = (
     REVIEW_SKILL_PATH,
@@ -180,16 +181,20 @@ class TestGeneratedPlanEvidenceContracts:
     def test_tbd_guidance_matches_the_validator_resolution_path_contract(self):
         template = TEMPLATE_PATH.read_text()
         creation_instructions = CREATE_SKILL_PATH.read_text()
-        score_prompt = SCORE_PROMPT_PATH.read_text()
         revision_instructions = REVISE_PROMPT_PATH.read_text()
 
         assert "TBD — Resolution:" in template
-        assert "explicit resolution path" in creation_instructions
         assert 'plain "TBD"' not in creation_instructions
-        assert "explicit resolution path" in score_prompt
-        assert "explicit resolution path" in revision_instructions
         assert "TBD — Resolution:" in revision_instructions
         assert "TBD — pending" not in revision_instructions
+
+    @pytest.mark.parametrize(
+        "guidance_path",
+        (CREATE_SKILL_PATH, REVISE_PROMPT_PATH, SCORE_PROMPT_PATH),
+        ids=("creation", "revision", "score"),
+    )
+    def test_guidance_contains_literal_contiguous_explicit_resolution_path(self, guidance_path):
+        assert _EXPLICIT_RESOLUTION_PATH in guidance_path.read_text()
 
     def test_scope_fidelity_enforcement_documents_every_capped_evidence_input(self):
         score_prompt = SCORE_PROMPT_PATH.read_text()
