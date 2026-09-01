@@ -14,44 +14,57 @@ Generate individual test case specification files from an existing test plan.
 ## Usage
 
 ```
-/test-plan-create-cases [FEATURE_DIR]
+/test-plan-create-cases [FEATURE_SOURCE] [--output-dir PATH]
 ```
 
 Examples:
-- `/test-plan-create-cases` (auto-detects from prior `/test-plan-create` run)
+- `/test-plan-create-cases` (prompts for the feature directory)
 - `/test-plan-create-cases mcp_catalog`
 - `/test-plan-create-cases /path/to/feature_dir`
+- `/test-plan-create-cases mcp_catalog --output-dir .` (contributor override)
 
 ## Inputs
 
-### From arguments
-Parse `$ARGUMENTS` to extract:
-1. **First argument** (optional): Feature source - can be:
-   - Local directory path: `mcp_catalog` or `/path/to/mcp_catalog`
-   - GitHub branch: `https://github.com/org/repo/tree/test-plan/RHAISTRAT-400`
-   - GitHub PR: `https://github.com/org/repo/pull/5`
-2. **`--output-dir`** (optional): Force creation in specified directory (contributor override, skips validation)
+If `$ARGUMENTS` is empty, set `FORCE_OUTPUT_DIR=false` and go to **Interactive fallback**.
 
-### Auto-detection from session
-If no arguments are provided, check for session context from `/test-plan-create`:
+If `$ARGUMENTS` is non-empty, parse **after** Step 0.1. Consume `--output-dir` before the positional feature source:
+
 ```bash
-# Check if TEST_PLAN_OUTPUT_DIR environment variable is set
-if [ -n "$TEST_PLAN_OUTPUT_DIR" ]; then
-    # /test-plan-create was just run in this session
-    feature_dir="$TEST_PLAN_OUTPUT_DIR/<feature_name>"
-    echo "✓ Auto-detected from /test-plan-create session: $feature_dir"
-    # Proceed directly to Step 1 (skip Step 0.2)
+OUTPUT_DIR=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && \
+  uv run python scripts/parse_skill_args.py --output-dir "$ARGUMENTS")
+FORCE_OUTPUT_DIR=false
+if [ -n "$OUTPUT_DIR" ]; then
+    FORCE_OUTPUT_DIR=true
 fi
 ```
 
-### Interactive fallback
-If no arguments AND no session context, ask the user via AskUserQuestion:
-> **Where is the TestPlan.md located?**
+`--output-dir` is a contributor override. When `FORCE_OUTPUT_DIR=true`, run marker validation
+in Step 0.2.2 and omit skill-repository path validation in Step 0.2.3.
+`FEATURE_SOURCE` is the positional argument or the interactive answer; the flag's `PATH` only
+sets `FORCE_OUTPUT_DIR`. If the flag is present with no positional feature source, go to
+**Interactive fallback**.
+
+### From arguments (optional)
+
+After flags are consumed, if a remaining argument does not start with `--`, it is the feature source:
+- Local directory path: `mcp_catalog` or `/path/to/mcp_catalog`
+- GitHub branch: `https://github.com/org/repo/tree/test-plan/RHAISTRAT-400`
+- GitHub PR: `https://github.com/org/repo/pull/5`
+
+**Action:** Set `FEATURE_SOURCE` to that positional value and proceed to Step 0.2.
+
+### Interactive fallback (no positional feature source)
+
+If `$ARGUMENTS` is empty, or no positional feature source remains after flags, invoke AskUserQuestion:
+
+> **Where is the feature directory containing your test plan?**
 >
 > You can provide:
-> - Local directory path (e.g., `~/Code/opendatahub-test-plans/plans/ai-hub/mcp_catalog`)
-> - GitHub branch URL (e.g., `https://github.com/org/repo/tree/test-plan/RHAISTRAT-400`)
-> - GitHub PR URL (e.g., `https://github.com/org/repo/pull/5`)
+> - **Local directory path** (e.g., `/Users/username/Code/ai-hub-test-plans/mcp_catalog`)
+> - **GitHub branch URL** (e.g., `https://github.com/org/repo/tree/test-plan/RHAISTRAT-400`)
+> - **GitHub PR URL** (e.g., `https://github.com/org/repo/pull/5`)
+
+**Action:** Capture the user's selection as `FEATURE_SOURCE` and proceed to Step 0.2.
 
 ## Process
 
@@ -68,11 +81,9 @@ If installation fails, inform the user and do NOT proceed. Once installed, all P
 
 #### 0.2 Locate Feature Directory
 
-**Skip this step if session context was found** (see "Auto-detection from session" above).
-
-1. **Use the shared locate-feature-dir utility**:
+1. **Use the shared locate-feature-dir utility** to resolve `FEATURE_SOURCE` (local path or GitHub branch/PR) into a local directory:
    ```bash
-   result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py locate-feature-dir "<source>")
+   result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py locate-feature-dir "$FEATURE_SOURCE")
    if [ $? -ne 0 ]; then
        echo "$result"
        exit 1
@@ -83,20 +94,27 @@ If installation fails, inform the user and do NOT proceed. Once installed, all P
    source_type=$(echo "$result" | jq -r '.source_type')
    ```
 
-2. **Validate local paths against skill repository** (unless `--output-dir` flag was used):
+2. **For local sources, validate the feature directory is self-contained** (was created by
+   `/test-plan-create`, which always writes `<feature_dir>/.test-plan-output-dir.json`):
    ```bash
    if [ "$source_type" = "local" ]; then
-       # Check for --output-dir flag (contributor override)
-       FORCE_OUTPUT_DIR="${FORCE_OUTPUT_DIR:-false}"
-
-       # Validate against skill repository
-       export CLAUDE_SKILL_DIR
-       force_flag=$([ "$FORCE_OUTPUT_DIR" = "true" ] && echo "--force" || echo "")
-       (cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py validate-local-path "$feature_dir" $force_flag) || exit 1
+       marker_result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/discover_feature_dir.py "$feature_dir")
+       if [ $? -ne 0 ]; then
+           echo "$marker_result"
+           exit 1
+       fi
    fi
    ```
 
-**Note**: GitHub sources are always external repos, so no skill repo validation needed.
+3. **Validate local paths against skill repository** unless `FORCE_OUTPUT_DIR=true`:
+   ```bash
+   if [ "$FORCE_OUTPUT_DIR" != "true" ] && [ "$source_type" = "local" ]; then
+       export CLAUDE_SKILL_DIR
+       (cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py validate-local-path "$feature_dir") || exit 1
+   fi
+   ```
+
+**Note**: GitHub sources are always external repos, so no marker check or skill repo validation needed.
 
 ### Step 1: Read the Test Plan
 
@@ -199,8 +217,9 @@ Process **one category at a time** from Section 5.2. For each category:
    - Write the frontmatter directly — validation happens in Step 5.7
    - **Important**: In regeneration mode, files were already read in Step 2.5, so Edit/Write will succeed
 
-3. **E2E test cases (mandatory)**: After processing all categories, generate TC-E2E-*.md test cases that validate the user journeys defined in the strategy:
-   - Every interface from Section 4 MUST be covered by at least one E2E scenario
+3. **E2E/UI interface coverage (mandatory)**: After processing all categories, ensure every non-pending interface from Section 4 is represented in Section 6.2 with at least one `TC-E2E-*` or `TC-UI-*` reference:
+   - Generate `TC-E2E-*.md` test cases for user journeys that require end-to-end system coverage
+   - An appropriate existing or generated `TC-UI-*.md` test case may satisfy the interface row when UI coverage is the applicable path
    - Each E2E test case should represent a complete user journey, not just a single interface call
    - Use `TC-E2E-<NUMBER>` naming convention (e.g., TC-E2E-001, TC-E2E-002)
 
@@ -234,6 +253,37 @@ Before writing each assertion, ask: **"Is this testing what the TC is fundamenta
 
 A test that FAILs for the wrong reason is worse than no test at all. When in doubt, prefer the narrower assertion.
 
+**Test case robustness rules:**
+- **Background processes**: When a TC uses background loops (`&`),
+  capture each PID (`PID_X=$!`), define a `cleanup()` function
+  that kills each PID with `kill "$PID" 2>/dev/null || true`
+  (so a dead PID does not fail the trap), and register it with
+  `trap cleanup EXIT` before starting the loops. Use `EXIT`
+  only — adding `INT` or `TERM` causes cleanup to run on the
+  signal and then again on exit.
+- **Query scoping**: When querying Prometheus or other shared
+  data stores, scope queries to the labels the data store
+  actually exposes (e.g., `namespace`, `job`, `container`,
+  `pod`). Include only the labels that exist in the target
+  metric or data source — do not mandate labels the store
+  does not carry. Do not rely on cluster-wide queries that
+  unrelated workloads could satisfy.
+- **Validate all results**: When asserting label sets, response
+  structure, or field presence, first confirm the result array
+  is non-empty (e.g., `jq '.result | length > 0'`), then
+  validate ALL entries (e.g., `jq '.result | length > 0 and
+  all(...)'`). An empty result silently passes `all(...)`, so
+  the length guard is required.
+- **Synthetic credentials only**: Never specify production or
+  real user credentials in preconditions or test data. Use
+  test-only API keys, throwaway OIDC tokens from a test IdP,
+  or synthetic identities.
+- **No fallback masking**: When a TC's preconditions guarantee
+  data exists (e.g., traffic is flowing), do not include
+  `or vector(0)` or similar fallbacks in test queries — they
+  mask broken pipelines as passing tests. Fallback behavior
+  should be tested in dedicated edge-case TCs.
+
 **Anti-hallucination rules:**
 - Do NOT invent requirements not present in the test plan
 - Do NOT create test cases for interfaces marked as "pending details" in Section 4
@@ -261,7 +311,7 @@ Update `<feature_dir>/TestPlan.md` using the Edit tool:
 1. **Section 5** — Update the note to reflect test cases have been generated, with a link to `test_cases/INDEX.md`
 2. **Section 5.1** — Fill in the Test Case Organization table with category, test case count, and priority distribution
 3. **Section 6.1** — Fill in the E2E Scenario Summary table with the generated TC-E2E-* scenarios (ID, scenario name, interfaces covered, priority)
-4. **Section 6.2** — Fill in the E2E Coverage Matrix mapping each interface from Section 4 to its E2E scenario IDs
+4. **Section 6.2** — Fill in the E2E Coverage Matrix mapping each interface from Section 4 to the applicable `TC-E2E-*` or `TC-UI-*` references
 5. **Section 9.1** — Fill in the Test Case Summary table with counts per category and priority breakdown
 6. **Section 9.2** — Fill in the Test Cases column with TC IDs mapped to each interface. Leave the Coverage column empty — it will be filled later by `/coverage-assessment`
 
@@ -275,14 +325,14 @@ Update `<feature_dir>/README.md` to add a link to the test cases index:
 
 After generating all test case files and updating the test plan, validate coverage:
 
-1. **Interface coverage**: Run `uv run python scripts/validate.py interface-coverage <feature_dir>/TestPlan.md` (deterministic table diff — do not eyeball Section 9.2/6.2 yourself). If `missing_in_9_2` is non-empty, those interfaces lack test case coverage — flag them as gaps. Interfaces marked "pending details" in Section 4 are listed under `pending` and are already excluded from `missing_in_9_2`/`missing_in_6_2` by the validator.
-2. **E2E coverage**: From the same `interface-coverage` result, if `section_6_2_populated` is `true` and `missing_in_6_2` is non-empty, those interfaces lack E2E scenario coverage — generate the missing TC-E2E-* test case(s), update Sections 6.2/9.2, and re-run the validator before proceeding. `missing_in_6_2` already excludes `pending` interfaces, so this never regenerates cases for interfaces excluded by the anti-hallucination rule.
+1. **Interface coverage**: Run `uv run python scripts/validate.py interface-coverage <feature_dir>/TestPlan.md` (deterministic table diff — do not eyeball Section 9.2/6.2 yourself). If `missing_in_9_2` is non-empty, those interfaces lack test case coverage — flag them as gaps. Interfaces marked "pending details" in Section 4 are listed under `pending` and are already excluded from `missing_in_9_2`, `missing_in_6_2`, and `missing_e2e_or_ui_in_6_2` by the validator.
+2. **E2E-or-UI coverage**: From the same `interface-coverage` result, if `section_6_2_populated` is `true`, both `missing_in_6_2` and `missing_e2e_or_ui_in_6_2` must be empty. Each populated Section 6.2 row must contain at least one `TC-E2E-*` or `TC-UI-*` reference. For `missing_in_6_2`, generate the missing test case(s) and add the interface mapping; for `missing_e2e_or_ui_in_6_2`, add at least one appropriate `TC-E2E-*` or `TC-UI-*` reference to each populated row for every reported interface. Update Sections 6.2/9.2 and re-run the validator before proceeding. Both diagnostics already exclude `pending` interfaces, so this never regenerates cases for interfaces excluded by the anti-hallucination rule.
 3. **Test objective coverage**: Check that every test objective from Section 1.3 is addressed by at least one test case. Flag any uncovered objectives.
 4. **Priority distribution**: Verify that TC priorities align with the flow priorities in Section 6.1 — a P0 flow should not only have P2 test cases.
 5. **Configurable coverage**: Check that every env var, config path, or configurable explicitly named in Section 3.1 has at least one TC that exercises a non-default value. If any is uncovered, flag it as a coverage gap.
 6. **Objective traceability**: Check that every generated TC's `objectives` frontmatter field references at least one valid Section 1.3 objective number, and that every referenced objective has an AC citation. Flag any TC with a missing, empty, or invalid `objectives` field.
 7. **Gap cross-reference**: If `TestPlanGaps.md` was read in Step 1.5, verify that no test cases were created for interfaces or areas flagged as pending/missing. If any were, remove them and flag the inconsistency.
-8. **Append to TestPlanGaps.md**: If `<feature_dir>/TestPlanGaps.md` exists, append a `## Test Case Coverage Gaps` section with any coverage gaps found (uncovered interfaces, missing objectives, priority mismatches, missing E2E scenarios, uncovered configurables). If the file does not exist, create it with just this section.
+8. **Append to TestPlanGaps.md**: If `<feature_dir>/TestPlanGaps.md` exists, append a `## Test Case Coverage Gaps` section with any coverage gaps found (uncovered interfaces, missing objectives, priority mismatches, missing E2E/UI interface coverage, uncovered configurables). If the file does not exist, create it with just this section.
 
 ### Step 5.7: Validate Frontmatter, Counts, Scope, and Traceability
 

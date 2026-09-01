@@ -7,8 +7,9 @@
 > | Label | Meaning |
 > |-------|---------|
 > | `test-plan-auto-created` | AI generated the test plan |
-> | `test-plan-rubric-pass` | Automated rubric scored >= 8/10, no zeros |
-> | `test-plan-rubric-fail` | Automated rubric scored < 7 or a criterion scored 0 |
+> | `test-plan-rubric-pass` | Automated rubric scored >= 8/10, no zeros, AND actionability == 2 |
+> | `test-plan-rubric-revise` | Automated rubric scored Revise verdict (qualifying total but a criterion below 2, most notably actionability=1) |
+> | `test-plan-rubric-fail` | Automated rubric scored < 7, or any criterion scored 0 |
 > | `test-plan-auto-revised` | AI applied at least one auto-revision cycle |
 > | `test-plan-human-reviewed` | Human has reviewed and approved |
 
@@ -57,8 +58,10 @@ Every test plan -- whether triggered manually or by the agentic CI
 pipeline -- has already passed through automated generation and scoring.
 The path forward depends on the rubric verdict:
 
-- **Rubric-pass** (>= 8/10, no zeros) -- The plan meets baseline
+- **Rubric-pass** (>= 8/10, no zeros, actionability == 2) -- The plan meets baseline
   quality. Review for domain accuracy, then approve or request changes.
+- **Rubric-revise** (total >= 7, no zeros, but not Ready) -- The plan qualifies but has
+  minor improvements needed. Review and decide whether to iterate or approve as-is.
 - **Rubric-fail** (< 7 or any zero) -- The automated review flagged
   significant issues. These need source documents (ADR, API spec,
   design doc) or manual correction before approval.
@@ -81,16 +84,22 @@ each scored 0-2.
 
 | Verdict | Trigger | Meaning |
 |---------|---------|---------|
-| **Ready** | total >= 8, no zeros | Baseline quality met -- proceed to review |
-| **Revise** | total = 7, no zeros | Minor improvements needed |
+| **Ready** | total >= 8, no zeros, actionability == 2 | Baseline quality met -- proceed to review |
+| **Revise** | total >= 7, no zeros (but not Ready) | Minor improvements needed |
 | **Rework** | total < 7 or any zero | Significant issues -- needs source docs |
+
+> **Note**: The frontmatter `pass` boolean is a lower floor (total >= 7, no
+> zeros) than the `test-plan-rubric-pass` Jira label (>= 8, no zeros, AND
+> actionability == 2). A Revise-verdict plan can have `pass: true` while
+> still being labeled `test-plan-rubric-revise` -- the two are intentionally
+> decoupled, not inconsistent.
 
 ## Setup
 
 1. Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 2. Set Jira credentials:
    ```bash
-   export JIRA_URL="https://issues.redhat.com"
+   export JIRA_URL="https://redhat.atlassian.net"
    export JIRA_USER="your-email@redhat.com"
    export JIRA_TOKEN="your-jira-api-token"
    ```
@@ -199,8 +208,9 @@ nothing about the feature. Could they provision the test environment?
 If they'd come back with questions, it's not actionable.
 
 What to check:
-- Are OpenShift and RHOAI versions specified (or marked TBD with
-  rationale)?
+- Are OpenShift and RHOAI versions specified? For `actionability == 2`, an unknown is acceptable
+  only as `TBD — Resolution: {concrete action} from/with/by/before/after/using {named source or timing}`.
+  A recorded gap without that explicit resolution path cannot support a 2/2 score.
 - Does test data include format and examples, not just "sample data"?
 - Are test users defined with specific roles and permissions?
 - Are infrastructure requirements concrete enough to act on?
@@ -216,8 +226,14 @@ Run these six cross-checks:
    result)
 5. Section 7 NFR categories are consistent with feature scope (e.g.,
    a feature that pulls images should not mark Disconnected as N/A)
-6. Section 6.2 E2E Coverage Matrix includes all interfaces (checked
-   deterministically; expected unpopulated until create-cases runs)
+6. Once populated, the Section 6.2 E2E Coverage Matrix must include every
+   non-pending interface from Section 4, and each populated Section 6.2 row
+   must contain at least one `TC-E2E-*` or `TC-UI-*` reference. The deterministic
+   `interface-coverage` result reports `missing_in_6_2` when no filled row exists
+   for a declared interface, and `missing_e2e_or_ui_in_6_2` when a declared
+   interface has a row without either reference, including a deficient duplicate
+   row when another duplicate satisfies coverage. An empty or placeholder matrix
+   remains expected before create-cases runs.
 
 ### 4. Review test cases
 
@@ -242,8 +258,8 @@ them for:
 - Do P0 flows in Section 6.1 have adequate test case coverage (not
   just P2 test cases)?
 - Is there a mix of positive, negative, and boundary test cases?
-- Do E2E test cases (TC-E2E-*) cover the user journeys described in
-  the strategy?
+- Do E2E test cases (TC-E2E-*) and, where applicable, UI test cases
+  (TC-UI-*) cover the user journeys described in the strategy?
 
 #### Priority alignment
 
@@ -342,7 +358,7 @@ Focus on:
 | NFR marked N/A incorrectly | Section 7 | PR comment explaining why the category applies |
 | TBDs that you can resolve | TestPlanGaps.md | PR comment with the answer, or provide the source doc |
 | Inconsistent cross-references | Section 9.2 vs Section 4 | PR comment (often auto-fixed by the pipeline) |
-| Missing E2E coverage for interfaces | Section 6.2 | PR comment requesting E2E test cases |
+| Missing E2E/UI coverage for interfaces | Section 6.2 | PR comment requesting an E2E or UI test case reference |
 
 ## Key Rules
 

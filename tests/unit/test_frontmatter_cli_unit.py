@@ -12,7 +12,8 @@ import pytest
 
 from scripts import frontmatter
 from scripts.utils.frontmatter_utils import write_frontmatter
-from tests.constants import VALID_TEST_PLAN_DATA, VALID_TEST_PLAN_REVIEW_DATA
+from tests.constants import VALID_TEST_GAPS_DATA
+from tests.consts.test_plan_constants import VALID_TEST_PLAN_DATA, VALID_TEST_PLAN_REVIEW_DATA
 
 
 class TestReadFieldArgument:
@@ -74,7 +75,15 @@ class TestReadFieldArgument:
 SKILL_READ_FIELD_CALLS = [
     ("test-plan", "TestPlan.md", VALID_TEST_PLAN_DATA, "source_key", "RHAISTRAT-400"),
     ("test-plan-review", "TestPlanReview.md", VALID_TEST_PLAN_REVIEW_DATA, "verdict", "Ready"),
-    ("test-plan-review", "TestPlanReview.md", VALID_TEST_PLAN_REVIEW_DATA, "auto_revised", "False"),
+    ("test-plan-review", "TestPlanReview.md", VALID_TEST_PLAN_REVIEW_DATA, "auto_revised", "false"),
+]
+
+
+# Bool fields must read back in JSON casing (true/false), not Python casing
+# (True/False), so shell comparisons like [ "$auto_revised" = "true" ] work.
+BOOL_CASING_CASES = [
+    (True, "true"),
+    (False, "false"),
 ]
 
 
@@ -98,6 +107,28 @@ class TestSkillFrontmatterReadCalls:
                 frontmatter.main()
                 output = sys.stdout.getvalue().strip()
                 assert output == expected
+        finally:
+            sys.argv = old_argv
+            sys.stdout = old_stdout
+
+    @pytest.mark.parametrize("value,expected", BOOL_CASING_CASES)
+    def test_bool_field_reads_in_json_casing(self, value, expected):
+        """A single bool field must print true/false, not Python's True/False.
+
+        Skills compare the output in shell, e.g. [ "$auto_revised" = "true" ];
+        Python-cased output silently fails that comparison.
+        """
+        old_argv = sys.argv
+        old_stdout = sys.stdout
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                path = Path(tmpdir) / "TestPlanReview.md"
+                data = {**VALID_TEST_PLAN_REVIEW_DATA, "auto_revised": value}
+                write_frontmatter(path, data, "test-plan-review")
+                sys.argv = ["frontmatter.py", "read", str(path), "auto_revised"]
+                sys.stdout = StringIO()
+                frontmatter.main()
+                assert sys.stdout.getvalue().strip() == expected
         finally:
             sys.argv = old_argv
             sys.stdout = old_stdout
@@ -145,3 +176,47 @@ def test_set_version_field_rejected():
     finally:
         sys.argv = old_argv
         sys.stdout = old_stdout
+
+
+def test_set_oserror_emits_structured_json(monkeypatch, capsys, tmp_path):
+    """Filesystem failures from atomic writers must not dump a traceback."""
+    path = tmp_path / "TestPlan.md"
+    write_frontmatter(path, VALID_TEST_PLAN_DATA, "test-plan")
+
+    def boom(*_args, **_kwargs):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(frontmatter, "update_frontmatter", boom)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["frontmatter.py", "set", str(path), "status=Draft"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        frontmatter.main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "replace failed" in captured.err
+    assert "Traceback (most recent call last):" not in captured.err
+    assert json.loads(captured.out) == {"status": "failed", "error": "write_failed"}
+
+
+def test_set_invalid_coerce_emits_structured_json(monkeypatch, capsys, tmp_path):
+    """Bad typed field values must not dump a traceback from int()/bool parsing."""
+    path = tmp_path / "TestPlanGaps.md"
+    write_frontmatter(path, VALID_TEST_GAPS_DATA, "test-gaps")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["frontmatter.py", "set", str(path), "gap_count=abc"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        frontmatter.main()
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err
+    assert json.loads(captured.out) == {"status": "failed", "error": "invalid_field_value"}

@@ -52,7 +52,7 @@ What user types are needed:
 - Unprivileged users for permission testing
 - Anonymous access scenarios
 
-If the strategy doesn't mention specific versions or user types, mark them as TBD rather than guessing.
+If the strategy doesn't mention specific versions or user types, do not guess. Use `TBD — Resolution: {concrete action} from/with/by/before/after/using {named source or timing}` only when that path is grounded in the source; otherwise record the gap without presenting it as actionable evidence. Test-data examples must be concrete, not bracketed placeholders. RBAC entries must identify both a role, a concrete resource, and permissions.
 
 ### 4. Test Tools (for Section 3.4)
 
@@ -86,11 +86,15 @@ Return your findings in this exact structure:
 
 ## Gaps
 
-{List every gap found during analysis. Each gap must specify what is missing and what document type could fill it.}
+{List every gap found during analysis. Each gap must specify what is missing and what document
+type could fill it. Pick exactly ONE of: ADR, API spec, feature refinement, design doc — do not
+combine types or add parenthetical elaboration. The "— would be resolved by: {type}" clause is
+mandatory on every bullet — never omit it, even if the doc type feels obvious from context.}
 
-- **{gap description}** — would be resolved by: {ADR / API spec / feature refinement / design doc}
+- **{gap description}** — would be resolved by: {ADR|API spec|feature refinement|design doc}
 
 {If no gaps: "No gaps identified."}
 ```
 
-Ground every finding in the source documents. If the strategy is light on environment details, mark items as TBD and flag them in Gaps.
+Ground every finding in the source documents. If the strategy is light on environment details,
+record the missing item in Gaps; do not emit a bare TBD.

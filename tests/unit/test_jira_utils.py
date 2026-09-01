@@ -35,6 +35,29 @@ class TestRequireEnv:
         with patch.dict(os.environ, {}, clear=True), pytest.raises(SystemExit):
             require_env("MISSING_VAR")
 
+    def test_require_env_falls_back_to_alias(self):
+        """Test that require_env uses alias when canonical name is unset."""
+        with patch.dict(os.environ, {"JIRA_BASE_URL": "https://jira.example.com"}, clear=True):
+            assert require_env("JIRA_URL") == "https://jira.example.com"
+
+    def test_require_env_canonical_takes_precedence(self):
+        """Test that canonical name is preferred over alias."""
+        env = {"JIRA_URL": "https://canonical.com", "JIRA_BASE_URL": "https://alias.com"}
+        with patch.dict(os.environ, env, clear=True):
+            assert require_env("JIRA_URL") == "https://canonical.com"
+
+    def test_require_env_all_aliases(self):
+        """Test all three alias mappings."""
+        aliases = {
+            "JIRA_BASE_URL": "https://jira.example.com",
+            "JIRA_EMAIL": "user@example.com",
+            "JIRA_API_TOKEN": "token123",
+        }
+        with patch.dict(os.environ, aliases, clear=True):
+            assert require_env("JIRA_URL") == "https://jira.example.com"
+            assert require_env("JIRA_USER") == "user@example.com"
+            assert require_env("JIRA_TOKEN") == "token123"
+
 
 class TestMakeRequest:
     """Tests for make_request function."""
@@ -339,6 +362,36 @@ class TestAddLabels:
 
         # Verify exact order (not set-based which would be random)
         assert labels == ["z", "a", "m", "b", "y"]
+
+    @patch("scripts.jira_utils.api_call_with_retry")
+    @patch("scripts.jira_utils.get_issue")
+    def test_add_labels_removes_stale_before_adding_replacement(self, mock_get_issue, mock_api_call):
+        """A verdict change (e.g. Ready -> Revise) must replace the old rubric label, not
+        accumulate alongside it — regression test for the CodeRabbit finding on PR #46.
+        """
+        mock_get_issue.return_value = {
+            "key": "TEST-123",
+            "fields": {"labels": ["test-plan-rubric-pass", "unrelated-label"]},
+        }
+        mock_api_call.return_value = None  # 204 No Content
+
+        add_labels("TEST-123", ["test-plan-rubric-revise"], remove=["test-plan-rubric-pass"])
+
+        call_args = mock_api_call.call_args
+        labels = call_args[1]["json_data"]["fields"]["labels"]
+        assert labels == ["unrelated-label", "test-plan-rubric-revise"]
+
+    @patch("scripts.jira_utils.api_call_with_retry")
+    @patch("scripts.jira_utils.get_issue")
+    def test_add_labels_remove_is_noop_when_label_not_present(self, mock_get_issue, mock_api_call):
+        mock_get_issue.return_value = {"key": "TEST-123", "fields": {"labels": ["unrelated-label"]}}
+        mock_api_call.return_value = None
+
+        add_labels("TEST-123", ["test-plan-rubric-pass"], remove=["test-plan-rubric-revise"])
+
+        call_args = mock_api_call.call_args
+        labels = call_args[1]["json_data"]["fields"]["labels"]
+        assert labels == ["unrelated-label", "test-plan-rubric-pass"]
 
     @patch("scripts.jira_utils.api_call_with_retry")
     @patch("scripts.jira_utils.get_issue")

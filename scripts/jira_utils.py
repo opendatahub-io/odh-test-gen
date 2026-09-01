@@ -2,10 +2,10 @@
 Core utilities for interacting with the Jira REST API.
 
 This module provides low-level API access functions with retry logic and error handling.
-Environment variables:
-- JIRA_URL: Base URL for the Jira instance (required)
-- JIRA_USER: Username or email for authentication (required)
-- JIRA_TOKEN: API token for authentication (required)
+Environment variables (accepts either naming convention):
+- JIRA_URL or JIRA_BASE_URL: Base URL for the Jira instance (required)
+- JIRA_USER or JIRA_EMAIL: Username or email for authentication (required)
+- JIRA_TOKEN or JIRA_API_TOKEN: API token for authentication (required)
 """
 
 import os
@@ -16,10 +16,22 @@ from urllib.parse import quote
 
 import requests
 
+from scripts.utils.error_utils import exit_error
+
+_ENV_ALIASES = {
+    "JIRA_URL": "JIRA_BASE_URL",
+    "JIRA_USER": "JIRA_EMAIL",
+    "JIRA_TOKEN": "JIRA_API_TOKEN",
+}
+
 
 def require_env(var_name: str) -> str:
     """
     Require an environment variable to be set.
+
+    Supports aliases: JIRA_URL/JIRA_BASE_URL, JIRA_USER/JIRA_EMAIL,
+    JIRA_TOKEN/JIRA_API_TOKEN. The canonical name is checked first,
+    then the alias.
 
     Args:
         var_name: Name of the environment variable
@@ -28,12 +40,17 @@ def require_env(var_name: str) -> str:
         The value of the environment variable
 
     Raises:
-        SystemExit: If the environment variable is not set
+        SystemExit: If neither the variable nor its alias is set
     """
     value = os.getenv(var_name)
     if not value:
-        print(f"Error: {var_name} environment variable is required", file=sys.stderr)
-        sys.exit(1)
+        alias = _ENV_ALIASES.get(var_name)
+        if alias:
+            value = os.getenv(alias)
+    if not value:
+        alias = _ENV_ALIASES.get(var_name, "")
+        hint = f" (or {alias})" if alias else ""
+        exit_error(f"Error: {var_name}{hint} environment variable is required")
     return value
 
 
@@ -143,6 +160,8 @@ def api_call_with_retry(
 
             # Don't retry auth errors (401, 403) - credentials won't fix themselves
             if e.response.status_code in (401, 403):
+                # For auth errors, we still want to raise the exception rather than exit
+                # since callers may want to handle it, so keep this as a print
                 print(
                     f"Authentication error ({e.response.status_code}): Check JIRA_URL, JIRA_USER, JIRA_TOKEN",
                     file=sys.stderr,
@@ -185,17 +204,20 @@ def get_issue(issue_key: str, fields: str | None = None) -> dict[str, Any]:
     return api_call_with_retry(endpoint, params=params)
 
 
-def add_labels(issue_key: str, labels: list[str]) -> None:
+def add_labels(issue_key: str, labels: list[str], remove: list[str] | None = None) -> None:
     """
-    Add labels to a Jira issue.
+    Add labels to a Jira issue, optionally dropping a set of stale labels first.
 
-    This function fetches the current labels and merges them with the new labels
-    to avoid removing existing labels. Preserves label order and only makes API
-    calls when labels actually change.
+    This function fetches the current labels, drops any in `remove`, then merges
+    in `labels` to avoid clobbering unrelated existing labels. Preserves label
+    order and only makes API calls when labels actually change.
 
     Args:
         issue_key: The Jira issue key (e.g., 'PROJ-123')
         labels: List of labels to add
+        remove: Optional list of labels to strip before adding, e.g. a previous
+            state label superseded by one of `labels` (rubric verdict labels are
+            mutually exclusive — an issue must never carry more than one at once)
 
     Raises:
         requests.HTTPError: If the request fails
@@ -204,8 +226,8 @@ def add_labels(issue_key: str, labels: list[str]) -> None:
     issue = get_issue(issue_key, fields="labels")
     existing_labels = issue.get("fields", {}).get("labels", [])
 
-    # Merge labels preserving order (append new ones at end, deduplicate)
-    all_labels = existing_labels.copy()
+    # Drop stale labels, then merge in the new ones preserving order (append at end, deduplicate)
+    all_labels = [label for label in existing_labels if label not in (remove or [])]
     for label in labels:
         if label not in all_labels:
             all_labels.append(label)

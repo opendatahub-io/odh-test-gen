@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 from scripts.fetch_issue import parse_components
+from scripts.utils.error_utils import exit_error_with_json
 from scripts.utils.repo_utils import get_git_root
 from scripts.utils.schemas import SCHEMAS
 from scripts.utils.snapshot_io import read_file_nofollow, write_snapshot_nofollow
@@ -32,14 +33,18 @@ from scripts.utils.strat_utils import parse_acceptance_criteria, parse_nfr, pars
 JIRA_KEY_RE = re.compile(SCHEMAS["test-plan"]["source_key"]["pattern"])
 
 
+OUTPUT_DIR_MARKER = ".test-plan-output-dir.json"
+
+
 def _permitted_strat_path(raw_path: str) -> Path:
     """Resolve raw_path and confirm it sits inside a permitted location, shared by every
     subcommand that touches a strategy file on disk.
 
-    Every documented caller passes one of exactly two paths: the persistent local cache
-    `<repo_root>/artifacts/strat-tasks/<KEY>.md`, or an ephemeral fetch written to
-    `<repo_root>/artifacts/strat-tasks/.tmp/` (an application-owned, mode-0700 directory — never
-    the shared system temp dir, which any other process could have dropped a readable file into).
+    Permitted locations:
+    - `<repo_root>/artifacts/strat-tasks/<KEY>.md` — persistent local cache
+    - `<repo_root>/artifacts/strat-tasks/.tmp/` — ephemeral fetch (mode-0700, never shared system temp)
+    - Output dir from `<feature_dir>/.test-plan-output-dir.json` (written by save-snapshot)
+
     Anything else is rejected so a malformed or malicious strat_file argument can't be used to
     read or move arbitrary files.
     """
@@ -50,6 +55,19 @@ def _permitted_strat_path(raw_path: str) -> Path:
 
     strat_root = (Path(repo_root) / "artifacts" / "strat-tasks").resolve()
     allowed_roots = [strat_root, strat_root / ".tmp"]
+
+    # For snapshots like <output_dir>/<feature_name>/.source-strategy.md,
+    # the parent is the feature dir — read .test-plan-output-dir.json from there
+    feature_dir = resolved.parent
+    marker = feature_dir / OUTPUT_DIR_MARKER
+    if marker.is_file() and not marker.is_symlink():
+        with contextlib.suppress(json.JSONDecodeError, OSError, KeyError, TypeError, ValueError):
+            data = json.loads(marker.read_text())
+            # Validate marker shape: must be dict with string output_dir pointing to existing dir
+            if isinstance(data, dict) and isinstance(data.get("output_dir"), str):
+                output_dir_path = Path(data["output_dir"]).resolve()
+                if output_dir_path.is_dir():
+                    allowed_roots.append(output_dir_path)
 
     if not any(resolved == root or resolved.is_relative_to(root) for root in allowed_roots):
         raise ValueError("strategy_file_not_permitted")
@@ -78,6 +96,10 @@ def save_snapshot(strategy_file: str, feature_dir: str) -> dict:
     """Persist a fetched/cached strategy file as <feature_dir>/.source-strategy.md and extract
     its RHOAI components in the same call.
 
+    Also writes <feature_dir>/.test-plan-output-dir.json (output_dir = feature_dir's parent)
+    so that _permitted_strat_path and other skills can discover the output directory without
+    relying on the TEST_PLAN_OUTPUT_DIR environment variable.
+
     A file under the ephemeral artifacts/strat-tasks/.tmp/ scratch dir is deleted after (nothing
     else references it); a file directly under artifacts/strat-tasks/ is the shared cache other
     skills fall back to, so it is left in place.
@@ -97,6 +119,12 @@ def save_snapshot(strategy_file: str, feature_dir: str) -> dict:
     content = _load_strat_content(str(resolved))
     _write_snapshot(snapshot_path, content)
 
+    # Persist output dir so scripts/skills can find it without env vars.
+    # Same O_NOFOLLOW writer as the snapshot: a planted symlink at the marker
+    # must not redirect this write.
+    marker_path = feature_path / OUTPUT_DIR_MARKER
+    _write_snapshot(marker_path, json.dumps({"output_dir": str(feature_path.parent.resolve())}) + "\n")
+
     if resolved.is_relative_to(tmp_root):
         resolved.unlink()
         source = "temp"
@@ -112,8 +140,7 @@ def cmd_acceptance_criteria(args):
     try:
         content = _load_strat_content(args.strat_file)
     except (ValueError, OSError):
-        print(json.dumps({"status": "error", "error": "strategy_file_unreadable"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"status": "error", "error": "strategy_file_unreadable"})
     result = parse_acceptance_criteria(content)
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["found"] and result["count"] > 0 else 1)
@@ -123,8 +150,7 @@ def cmd_nfr(args):
     try:
         content = _load_strat_content(args.strat_file)
     except (ValueError, OSError):
-        print(json.dumps({"status": "error", "error": "strategy_file_unreadable"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"status": "error", "error": "strategy_file_unreadable"})
     result = parse_nfr(content)
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["found"] else 1)
@@ -134,8 +160,7 @@ def cmd_out_of_scope(args):
     try:
         content = _load_strat_content(args.strat_file)
     except (ValueError, OSError):
-        print(json.dumps({"status": "error", "error": "strategy_file_unreadable"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"status": "error", "error": "strategy_file_unreadable"})
     result = parse_out_of_scope(content)
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["found"] else 1)
@@ -143,20 +168,17 @@ def cmd_out_of_scope(args):
 
 def cmd_resolve_local(args):
     if not JIRA_KEY_RE.match(args.jira_key):
-        print(json.dumps({"found": False, "error": "malformed_jira_key"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"found": False, "error": "malformed_jira_key"})
 
     repo_root = get_git_root(str(Path(__file__).resolve().parent))
     if not repo_root:
-        print(json.dumps({"found": False, "error": "repo_root_not_found"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"found": False, "error": "repo_root_not_found"})
 
     strat_dir = (Path(repo_root) / "artifacts" / "strat-tasks").resolve()
     candidate = (strat_dir / f"{args.jira_key}.md").resolve()
 
     if not candidate.is_file() or not (candidate == strat_dir or candidate.is_relative_to(strat_dir)):
-        print(json.dumps({"found": False, "error": "strategy_file_not_found"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"found": False, "error": "strategy_file_not_found"})
 
     print(json.dumps({"found": True, "strategy_file": str(candidate)}, indent=2))
     sys.exit(0)
@@ -178,8 +200,7 @@ def cmd_new_strat_tmp(args):
     """
     repo_root = get_git_root(str(Path(__file__).resolve().parent))
     if not repo_root:
-        print(json.dumps({"created": False, "error": "repo_root_not_found"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"created": False, "error": "repo_root_not_found"})
 
     strat_root = Path(repo_root) / "artifacts" / "strat-tasks"
     strat_root.mkdir(parents=True, exist_ok=True)
@@ -208,8 +229,7 @@ def cmd_new_strat_tmp(args):
         finally:
             os.close(tmp_fd)
     except OSError:
-        print(json.dumps({"created": False, "error": "strategy_tmp_unavailable"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"created": False, "error": "strategy_tmp_unavailable"})
 
     path = str(strat_root / ".tmp" / name)
     print(json.dumps({"created": True, "strategy_file": path}, indent=2))
@@ -220,11 +240,9 @@ def cmd_save_snapshot(args):
     try:
         result = save_snapshot(args.strategy_file, args.feature_dir)
     except ValueError:
-        print(json.dumps({"status": "error", "error": "strategy_file_not_permitted"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"status": "error", "error": "strategy_file_not_permitted"})
     except OSError:
-        print(json.dumps({"status": "error", "error": "snapshot_write_unsafe"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"status": "error", "error": "snapshot_write_unsafe"})
 
     print(json.dumps(result, indent=2))
     sys.exit(0)
@@ -234,8 +252,7 @@ def cmd_workflow_inputs(args):
     try:
         content = _load_strat_content(args.strat_file)
     except (ValueError, OSError):
-        print(json.dumps({"status": "error", "error": "strategy_file_unreadable"}, indent=2))
-        sys.exit(1)
+        exit_error_with_json({"status": "error", "error": "strategy_file_unreadable"})
 
     result = workflow_inputs(content)
     print(json.dumps(result, indent=2))

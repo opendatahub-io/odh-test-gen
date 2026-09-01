@@ -1,8 +1,8 @@
 # Calibration Example 2: kagenti_agent_templates_1/TestPlan.md
 
 **Source**: `kagenti_agent_templates_1/TestPlan.md` (RHAISTRAT-1290)
-**Test plan version**: Without test cases (Sections 5/9 unpopulated), no YAML frontmatter
-**Note**: This example predates Section 6 (E2E Scenarios) and Section 7 (NFR Assessment). It demonstrates the original four-cross-check consistency model. Modern test plans should evaluate six cross-checks (adding NFR and E2E coverage).
+**Test plan version**: Without test cases (Sections 5 and 9.1 unpopulated; 9.2 lists Section 4 without test-case mappings), no YAML frontmatter
+**Note**: This example predates Section 6 (E2E Scenarios) and Section 7 (NFR Assessment). It demonstrates the original four-cross-check consistency model. Modern test plans should evaluate seven cross-checks (scope subset, test levels, priorities, 9.2, NFRs, 6.2, ac_citations_result.valid).
 
 ## Score Table
 
@@ -34,4 +34,4 @@
 | Scope Fidelity | 2 | 2 | 0 | Both align well with strategy |
 | Actionability | 1 | 0 | -1 | Example 1 has concrete versions (OCP 4.16+, podman 4.x+, Python 3.11+); Example 2 has "TBD" for most |
 | Consistency | 2 | 1 | -1 | Example 1 has populated TCs and coverage; Example 2 has placeholders and a test-level mismatch |
-| **Total** | **8** | **6** | **-2** | Example 1 passes; Example 2 fails on actionability zero |
+| **Total** | **8** | **6** | **-2** | Example 1 (actionability=1) and Example 2 (actionability=0) both fail to reach Ready; Example 1 lands in Revise, Example 2 in Rework |
