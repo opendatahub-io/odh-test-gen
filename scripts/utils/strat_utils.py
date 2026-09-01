@@ -22,19 +22,28 @@ def _is_emphasised_line(text: str) -> bool:
 
 
 def _drop_group_headings(items: list[str]) -> list[str]:
-    """Drop emphasised lines that label the items following them.
+    """Drop emphasised lines that label the item directly beneath them.
 
-    An emphasised line is a *heading* only if it actually groups siblings. Judged by shape alone,
-    `*Greenfield:*` (a label) and `*Data is never lost during upgrade*` (a one-clause criterion)
-    are indistinguishable, so filtering every emphasised line would silently delete the criterion
-    — the same count corruption this filter exists to prevent, inverted from inflation to
-    deletion. Requiring at least one later item with unemphasised content removes that
-    false-positive class: a section built entirely of emphasised lines keeps all of them, and a
-    trailing label with nothing beneath it is kept as content rather than guessed away.
+    Judged by shape alone, `*Greenfield:*` (a label) and `*Data is never lost during upgrade*`
+    (a one-clause criterion) are identical, so filtering every emphasised line would silently
+    delete the criterion — the same count corruption this filter exists to prevent, inverted from
+    inflation to deletion. Position is the only available signal: a label sits directly above the
+    item it introduces, so an emphasised line is treated as a heading only when the item that
+    immediately follows it carries unemphasised content.
+
+    Looking only at the next item matters — scanning the whole tail instead would drop a bold
+    criterion whenever any later group in the same section happened to have one, renumbering every
+    criterion after it and leaving existing `(AC: #N)` citations pointing at the wrong text.
+
+    This narrows the false-positive class rather than eliminating it. Shape and position still
+    cannot separate a label from a bold criterion that happens to sit directly above an
+    unemphasised one; that case is filtered, and only an explicit convention in the STRAT
+    (a real heading, or bullets) could settle it. The residual cases are conservative: a run of
+    consecutive emphasised lines is kept in full, as is a trailing label with nothing beneath it.
     """
     emphasised = [_is_emphasised_line(item) for item in items]
     return [
-        item for i, item in enumerate(items) if not (emphasised[i] and any(not flag for flag in emphasised[i + 1 :]))
+        item for i, item in enumerate(items) if not (emphasised[i] and i + 1 < len(items) and not emphasised[i + 1])
     ]
 
 

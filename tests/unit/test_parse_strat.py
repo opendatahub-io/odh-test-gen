@@ -131,8 +131,37 @@ class TestParseAcceptanceCriteria:
 
         result = parse_acceptance_criteria(content)
 
-        assert result["count"] == 1
-        assert result["acceptance_criteria"][0]["text"].startswith("*Security*:")
+        assert result["acceptance_criteria"] == [
+            {
+                "num": 1,
+                "text": ("*Security*: tenant A cannot read tenant B resources, measured by: 403 on cross access."),
+            }
+        ]
+
+    def test_bold_ac_is_kept_when_a_real_group_heading_follows_it(self):
+        """A bold criterion above a later group must survive.
+
+        Only the item directly beneath a label is grouped by it. Scanning further down the section
+        would drop this criterion because an unemphasised item exists somewhere below, renumbering
+        the rest and silently repointing existing `(AC: #N)` citations.
+        """
+        content = (
+            "h3. Acceptance Criteria\n\n"
+            "*System boots within 5 seconds*\n\n"
+            "*Greenfield:*\n\n"
+            "Given a fresh install, when the operator applies the CR, then the operator reaches Ready.\n\n"
+            "h3. Effort Estimate\n"
+        )
+
+        result = parse_acceptance_criteria(content)
+
+        assert result["acceptance_criteria"] == [
+            {"num": 1, "text": "*System boots within 5 seconds*"},
+            {
+                "num": 2,
+                "text": ("Given a fresh install, when the operator applies the CR, then the operator reaches Ready."),
+            },
+        ]
 
     def test_multiline_ac_parsed_as_single_item(self):
         content = (FIXTURES_DIR / "strat-1737.md").read_text()
