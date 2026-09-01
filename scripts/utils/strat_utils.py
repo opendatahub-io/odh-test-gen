@@ -8,6 +8,44 @@ import re
 
 _TESTABILITY_HEADING_RE = re.compile(r"^h3\.\s+Testability(:.*)?\s*$")
 
+# A line whose entire content sits inside one emphasis span, carrying no unemphasised text.
+# Accepted forms, in Jira and Markdown emphasis, with the colon inside or outside the span:
+#     *Greenfield*     *Greenfield:*     *Greenfield*:
+#     **Greenfield**   **Greenfield:**   **Greenfield**:
+# The inner text may not itself contain `*`, so `*a* and *b*` is not a match.
+_EMPHASISED_LINE_RE = re.compile(r"^(\*{1,2})\s*([^*]+?)\s*:?\1\s*:?$")
+
+
+def _is_emphasised_line(text: str) -> bool:
+    """True when the whole line sits inside a single emphasis span."""
+    return bool(_EMPHASISED_LINE_RE.match(text.strip()))
+
+
+def _drop_group_headings(items: list[str]) -> list[str]:
+    """Drop emphasised lines that label the item directly beneath them.
+
+    Judged by shape alone, `*Greenfield:*` (a label) and `*Data is never lost during upgrade*`
+    (a one-clause criterion) are identical, so filtering every emphasised line would silently
+    delete the criterion — the same count corruption this filter exists to prevent, inverted from
+    inflation to deletion. Position is the only available signal: a label sits directly above the
+    item it introduces, so an emphasised line is treated as a heading only when the item that
+    immediately follows it carries unemphasised content.
+
+    Looking only at the next item matters — scanning the whole tail instead would drop a bold
+    criterion whenever any later group in the same section happened to have one, renumbering every
+    criterion after it and leaving existing `(AC: #N)` citations pointing at the wrong text.
+
+    This narrows the false-positive class rather than eliminating it. Shape and position still
+    cannot separate a label from a bold criterion that happens to sit directly above an
+    unemphasised one; that case is filtered, and only an explicit convention in the STRAT
+    (a real heading, or bullets) could settle it. The residual cases are conservative: a run of
+    consecutive emphasised lines is kept in full, as is a trailing label with nothing beneath it.
+    """
+    emphasised = [_is_emphasised_line(item) for item in items]
+    return [
+        item for i, item in enumerate(items) if not (emphasised[i] and i + 1 < len(items) and not emphasised[i + 1])
+    ]
+
 
 def extract_jira_section(content: str, heading_prefix: str) -> str | None:
     """Extract text between a Jira wiki heading and the next h2./h3. heading.
@@ -44,13 +82,14 @@ def _extract_bulleted_texts(section: str) -> list[str]:
 
     if bullet_marker:
         # Split on the bullet marker directly so entries survive with no blank line between them.
-        return [" ".join(item.split()) for item in re.split(bullet_marker, stripped)[1:] if item.strip()]
+        items = [" ".join(item.split()) for item in re.split(bullet_marker, stripped)[1:] if item.strip()]
+        return _drop_group_headings(items)
 
     merged = []
     for para in re.split(r"\n\n+", stripped):
         if text := " ".join(para.split()):
             merged.append(text)
-    return merged
+    return _drop_group_headings(merged)
 
 
 def parse_acceptance_criteria(content: str) -> dict:
