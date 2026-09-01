@@ -365,6 +365,29 @@ applies the 10-point rubric (Specificity, Grounding, Scope Fidelity, Actionabili
 0–2 each), may auto-revise internally for up to 2 cycles, and writes
 `<feature_name>/TestPlanReview.md` with scores and feedback. Full criteria live in `test-plan.review`.
 
+**Refresh TestPlanGaps.md** after the review returns (the revision loop may have resolved blocking
+gaps or introduced new advisories). Recompute `actionability_result` from the final `TestPlan.md`
+and rerun `consolidate_gaps_and_stamp.py` with the same flags used in Step 3.5:
+
+```bash
+repo_root=$(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel)
+citation_inputs=$(cd "$repo_root" && uv run python scripts/build_citation_inputs.py <feature_dir> \
+  --strategy-file "$strategy_file") || { echo "$citation_inputs"; exit 1; }
+actionability_result=$(echo "$citation_inputs" | jq -c '.actionability_result')
+
+(cd "$repo_root" && \
+ uv run python scripts/consolidate_gaps_and_stamp.py \
+   --feature-name "<feature_name>" \
+   --source-key <JIRA_KEY> \
+   --source endpoints=<feature_dir>/.analysis-endpoints.md \
+   --source risks=<feature_dir>/.analysis-risks.md \
+   --source infra=<feature_dir>/.analysis-infra.md \
+   --actionability-result "$actionability_result" \
+   --last-updated "$(date -u +%F)" \
+   --skip-cleanup \
+   --out <feature_dir>/TestPlanGaps.md)
+```
+
 **Handle the review output:**
 
 1. Read the verdict from `<feature_name>/TestPlanReview.md` frontmatter.

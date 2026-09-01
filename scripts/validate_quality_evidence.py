@@ -798,7 +798,8 @@ def validate_actionability(testplan_path: str) -> dict:
     # Preserve order while avoiding duplicate diagnostics when a section is both absent and
     # missing a specific field.
     missing_details = list(dict.fromkeys(missing_details))
-    advisory_gaps = list(dict.fromkeys(advisory_gaps))
+    blocking = set(bare_tbd) | set(missing_details)
+    advisory_gaps = [gap for gap in dict.fromkeys(advisory_gaps) if gap not in blocking]
     return {
         "valid": not bare_tbd and not missing_details,
         "bare_tbd": bare_tbd,
