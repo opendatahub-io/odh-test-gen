@@ -76,14 +76,26 @@ Examples:
     uv run python scripts/repo.py stage ~/Code/repo feature
     uv run python scripts/repo.py pr-create org/repo branch "Title" "Body"
     uv run python scripts/repo.py pr-comments org/repo 10
+
+    # Ensure GitLab test-plans-data checkout (sparse clone or pull)
+    uv run python scripts/repo.py ensure-gitlab-checkout RHAISTRAT-1868
+    # Outputs JSON: {"feature_dir": "/path", "source_type": "gitlab-clone", ...}
+
+    # Push updated artifacts to GitLab test-plans-data
+    uv run python scripts/repo.py push-to-gitlab /path/to/feature_dir
+    # Outputs JSON: {"pushed_files": [...], "gitlab_url": "...", "commit_sha": "..."}
 """
 
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.utils.error_utils import exit_error, exit_error_multiline
@@ -765,6 +777,386 @@ def cmd_safe_checkout(args):
     return safe_checkout_branch(repo_path, branch, remote)
 
 
+GITLAB_CLONE_ROOT_DEFAULT = os.path.expanduser("~/.ai-sdlc-hub/test-plans-data")
+GITLAB_REPO_URL = "gitlab.com/redhat/rhel-ai/agentic-ci/test-plans-data"
+
+
+def ensure_gitlab_checkout(source_key, clone_root=None):
+    """Sparse-clone (or refresh) GitLab test-plans-data and locate artifacts for a STRAT key.
+
+    Args:
+        source_key: Jira key (e.g. RHAISTRAT-400)
+        clone_root: Directory to clone into (default: $TEST_PLANS_DATA_DIR or ~/.ai-sdlc-hub/test-plans-data)
+
+    Returns:
+        (exit_code, result_dict)
+    """
+    gitlab_token = os.environ.get("GITLAB_TOKEN")
+    if not gitlab_token:
+        return 1, {"error": "GITLAB_TOKEN environment variable is required"}
+
+    clone_root = clone_root or os.environ.get("TEST_PLANS_DATA_DIR", GITLAB_CLONE_ROOT_DEFAULT)
+    key_match = re.match(r"^(RHAISTRAT|RHOAIENG|RHODA)-\d+$", source_key)
+    if not key_match:
+        return 1, {
+            "error": f"Invalid source key format: {source_key}. Expected RHAISTRAT-NNN, RHOAIENG-NNN, or RHODA-NNN"
+        }
+
+    prefix = key_match.group(1)
+    clone_url = f"https://oauth2:{{token}}@{GITLAB_REPO_URL}.git".format(token=gitlab_token)
+    credential_free_url = f"https://{GITLAB_REPO_URL}.git"
+
+    def _scrub_origin():
+        """Remove credentials from the persisted remote URL."""
+        if os.path.isdir(os.path.join(clone_root, ".git")):
+            subprocess.run(
+                ["git", "remote", "set-url", "origin", credential_free_url],
+                cwd=clone_root,
+                capture_output=True,
+                timeout=30,
+            )
+
+    try:
+        if not os.path.isdir(os.path.join(clone_root, ".git")):
+            os.makedirs(clone_root, exist_ok=True)
+            try:
+                subprocess.run(
+                    ["git", "clone", "--sparse", "--filter=blob:none", "--depth=1", clone_url, clone_root],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=120,
+                )
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr or ""
+                masked = stderr.replace(gitlab_token, "***")
+                return 1, {"error": f"git clone failed: {masked}"}
+
+            try:
+                subprocess.run(
+                    ["git", "sparse-checkout", "add", f"{prefix}/"],
+                    cwd=clone_root,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=30,
+                )
+            except subprocess.CalledProcessError as e:
+                return 1, {"error": f"git sparse-checkout failed: {e.stderr or e}"}
+        else:
+            # Inject credentials for pull/sparse-checkout on existing clones
+            subprocess.run(
+                ["git", "remote", "set-url", "origin", clone_url],
+                cwd=clone_root,
+                capture_output=True,
+                timeout=30,
+            )
+
+            try:
+                subprocess.run(
+                    ["git", "pull", "--ff-only"],
+                    cwd=clone_root,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=30,
+                )
+            except subprocess.CalledProcessError:
+                print("Warning: git pull failed, using cached data", file=sys.stderr)
+
+            sc_result = subprocess.run(
+                ["git", "sparse-checkout", "list"],
+                cwd=clone_root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            current_patterns = sc_result.stdout.strip().splitlines() if sc_result.returncode == 0 else []
+            if f"{prefix}/" not in current_patterns and prefix not in current_patterns:
+                try:
+                    subprocess.run(
+                        ["git", "sparse-checkout", "add", f"{prefix}/"],
+                        cwd=clone_root,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=30,
+                    )
+                except subprocess.CalledProcessError as e:
+                    return 1, {"error": f"git sparse-checkout add failed: {e.stderr or e}"}
+    finally:
+        _scrub_origin()
+
+    prefix_path = Path(clone_root) / prefix
+    if not prefix_path.is_dir():
+        return 1, {"error": f"No directory found for prefix {prefix}/ in test-plans-data"}
+
+    candidates = []
+    for d in prefix_path.iterdir():
+        if d.is_dir() and d.name.endswith(source_key):
+            candidates.append(d)
+
+    if not candidates:
+        return 1, {"error": f"No timestamped directory found matching *{source_key}* in {prefix}/"}
+
+    candidates.sort(key=lambda p: p.name, reverse=True)
+    latest = candidates[0]
+
+    feature_dir = None
+    for sub in latest.iterdir():
+        if sub.is_dir() and (sub / "TestPlan.md").is_file():
+            feature_dir = str(sub)
+            break
+
+    if not feature_dir:
+        if (latest / "TestPlan.md").is_file():
+            feature_dir = str(latest)
+        else:
+            return 1, {"error": f"TestPlan.md not found in {latest}"}
+
+    timestamp = latest.name.split("-" + source_key.split("-")[0])[0] if "-" in latest.name else latest.name
+    gitlab_path = str(Path(feature_dir).relative_to(clone_root))
+    gitlab_url = f"https://{GITLAB_REPO_URL}/-/tree/main/{gitlab_path}"
+
+    return 0, {
+        "feature_dir": feature_dir,
+        "source_type": "gitlab-clone",
+        "clone_root": clone_root,
+        "gitlab_path": gitlab_path,
+        "timestamp": timestamp,
+        "gitlab_url": gitlab_url,
+    }
+
+
+def cmd_ensure_gitlab_checkout(args):
+    """Ensure test plan artifacts are available via GitLab sparse clone."""
+    exit_code, result = ensure_gitlab_checkout(args.strat_key, clone_root=args.clone_root)
+    print(json.dumps(result, indent=2))
+    return exit_code
+
+
+def push_to_gitlab(feature_dir, clone_root=None):
+    """Push updated artifacts from local clone back to GitLab via merge request.
+
+    Creates a feature branch, commits artifacts, pushes, and opens a GitLab MR
+    against main instead of pushing directly.
+
+    Args:
+        feature_dir: Path to the feature directory containing TestPlan.md
+        clone_root: Root of the local test-plans-data clone
+                    (default: $TEST_PLANS_DATA_DIR or ~/.ai-sdlc-hub/test-plans-data)
+
+    Returns:
+        (exit_code, result_dict)
+    """
+    feature_dir = os.path.expanduser(feature_dir)
+    clone_root = clone_root or os.environ.get("TEST_PLANS_DATA_DIR", GITLAB_CLONE_ROOT_DEFAULT)
+
+    gitlab_token = os.environ.get("GITLAB_TOKEN", "")
+    if not gitlab_token:
+        return 1, {"error": "GITLAB_TOKEN environment variable is required"}
+    clone_url = f"https://oauth2:{gitlab_token}@{GITLAB_REPO_URL}.git"
+
+    if not os.path.isdir(os.path.join(clone_root, ".git")):
+        return 1, {"error": f"No local clone found at {clone_root}. Run ensure-gitlab-checkout first."}
+
+    testplan_path = os.path.join(feature_dir, "TestPlan.md")
+    if not os.path.isfile(testplan_path):
+        return 1, {"error": f"TestPlan.md not found in {feature_dir}"}
+
+    with open(testplan_path) as f:
+        content = f.read()
+
+    source_key = None
+    version = None
+    feature_name = None
+    in_frontmatter = False
+    for line in content.splitlines():
+        if line.strip() == "---":
+            if in_frontmatter:
+                break
+            in_frontmatter = True
+            continue
+        if in_frontmatter:
+            if line.startswith("source_key:"):
+                source_key = line.split(":", 1)[1].strip()
+            elif line.startswith("version:"):
+                version = line.split(":", 1)[1].strip()
+            elif line.startswith("feature:"):
+                feature_name = line.split(":", 1)[1].strip()
+
+    if not source_key:
+        return 1, {"error": "source_key not found in TestPlan.md frontmatter"}
+    if not feature_name:
+        feature_name = Path(feature_dir).name
+
+    key_match = re.match(r"^(RHAISTRAT|RHOAIENG|RHODA)-\d+$", source_key)
+    if not key_match:
+        return 1, {"error": f"Invalid source_key: {source_key}"}
+    prefix = key_match.group(1)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    new_dir_name = f"{timestamp}-{source_key}"
+    dest_dir = Path(clone_root) / prefix / new_dir_name / feature_name
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    artifact_whitelist = ["TestPlan.md", "README.md", "TestPlanGaps.md", "TestPlanReview.md"]
+    pushed_files = []
+
+    for name in artifact_whitelist:
+        src = Path(feature_dir) / name
+        if src.is_file():
+            shutil.copy2(str(src), str(dest_dir / name))
+            pushed_files.append(name)
+
+    tc_src = Path(feature_dir) / "test_cases"
+    if tc_src.is_dir():
+        tc_dest = dest_dir / "test_cases"
+        tc_dest.mkdir(exist_ok=True)
+        for md_file in tc_src.glob("*.md"):
+            shutil.copy2(str(md_file), str(tc_dest / md_file.name))
+            pushed_files.append(f"test_cases/{md_file.name}")
+
+    rel_path = str(dest_dir.relative_to(clone_root))
+    version_str = f" v{version}" if version else ""
+    commit_msg = f"test-plan-update: {source_key}{version_str} (manual update)"
+
+    branch_name = f"test-plan-update/{source_key}-{timestamp}"
+
+    try:
+        subprocess.run(
+            ["git", "checkout", "-b", branch_name],
+            cwd=clone_root,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["git", "add", rel_path],
+            cwd=clone_root,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=clone_root,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", clone_url],
+            cwd=clone_root,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["git", "push", "origin", branch_name],
+            cwd=clone_root,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", f"https://{GITLAB_REPO_URL}.git"],
+            cwd=clone_root,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or "").replace(os.environ.get("GITLAB_TOKEN", ""), "***")
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", f"https://{GITLAB_REPO_URL}.git"],
+            cwd=clone_root,
+            capture_output=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=clone_root,
+            capture_output=True,
+            timeout=30,
+        )
+        subprocess.run(
+            ["git", "branch", "-D", branch_name],
+            cwd=clone_root,
+            capture_output=True,
+            timeout=30,
+        )
+        return 1, {"error": f"git push failed: {stderr}"}
+
+    commit_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=clone_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    commit_sha = commit_result.stdout.strip() if commit_result.returncode == 0 else "unknown"
+
+    subprocess.run(
+        ["git", "checkout", "main"],
+        cwd=clone_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    project_id = GITLAB_REPO_URL.split("gitlab.com/", 1)[-1]
+    project_id_encoded = project_id.replace("/", "%2F")
+    mr_api_url = f"https://gitlab.com/api/v4/projects/{project_id_encoded}/merge_requests"
+    mr_data = json.dumps(
+        {
+            "source_branch": branch_name,
+            "target_branch": "main",
+            "title": commit_msg,
+            "remove_source_branch": True,
+        }
+    ).encode()
+    mr_req = urllib.request.Request(
+        mr_api_url,
+        data=mr_data,
+        headers={"PRIVATE-TOKEN": gitlab_token, "Content-Type": "application/json"},
+        method="POST",
+    )
+    mr_url = ""
+    try:
+        with urllib.request.urlopen(mr_req, timeout=30) as resp:
+            mr_result = json.loads(resp.read().decode())
+            mr_url = mr_result.get("web_url", "")
+    except (urllib.error.URLError, urllib.error.HTTPError) as e:
+        print(f"Warning: Could not create MR: {e}", file=sys.stderr)
+
+    # Prefer the MR URL (browsable immediately) over the main tree URL
+    # which 404s until the MR is merged
+    main_tree_url = f"https://{GITLAB_REPO_URL}/-/tree/main/{rel_path}"
+    gitlab_url = mr_url or main_tree_url
+
+    return 0, {
+        "pushed_files": pushed_files,
+        "gitlab_path": rel_path,
+        "gitlab_url": gitlab_url,
+        "main_tree_url": main_tree_url,
+        "commit_sha": commit_sha,
+        "timestamp": timestamp,
+        "mr_url": mr_url,
+    }
+
+
+def cmd_push_to_gitlab(args):
+    """Push updated artifacts from local clone back to GitLab."""
+    exit_code, result = push_to_gitlab(args.feature_dir, clone_root=args.clone_root)
+    print(json.dumps(result, indent=2))
+    return exit_code
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Repository discovery and management CLI",
@@ -856,6 +1248,34 @@ def main():
     parser_safe_checkout.add_argument("branch", help="Branch name to checkout")
     parser_safe_checkout.add_argument("--remote", default="origin", help="Remote name (default: origin)")
     parser_safe_checkout.set_defaults(func=cmd_safe_checkout)
+
+    # ensure-gitlab-checkout command
+    parser_gl_checkout = subparsers.add_parser(
+        "ensure-gitlab-checkout",
+        help="Ensure test plan artifacts are checked out locally from GitLab test-plans-data",
+    )
+    parser_gl_checkout.add_argument("strat_key", help="STRAT key (e.g. RHAISTRAT-1868)")
+    parser_gl_checkout.add_argument(
+        "--clone-root",
+        default=None,
+        help="Directory to clone test-plans-data into "
+        "(default: ~/.ai-sdlc-hub/test-plans-data or $TEST_PLANS_DATA_DIR)",
+    )
+    parser_gl_checkout.set_defaults(func=cmd_ensure_gitlab_checkout)
+
+    # push-to-gitlab command
+    parser_gl_push = subparsers.add_parser(
+        "push-to-gitlab",
+        help="Push updated test plan artifacts to GitLab test-plans-data with a new timestamped directory",
+    )
+    parser_gl_push.add_argument("feature_dir", help="Path to the local feature directory containing TestPlan.md")
+    parser_gl_push.add_argument(
+        "--clone-root",
+        default=None,
+        help="Root of the local test-plans-data clone "
+        "(default: ~/.ai-sdlc-hub/test-plans-data or $TEST_PLANS_DATA_DIR)",
+    )
+    parser_gl_push.set_defaults(func=cmd_push_to_gitlab)
 
     args = parser.parse_args()
 

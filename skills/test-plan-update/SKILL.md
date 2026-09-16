@@ -70,26 +70,40 @@ If installation fails, inform the user and do NOT proceed. Once installed, all P
 1. **Use the shared locate-feature-dir utility**:
    ```bash
    result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py locate-feature-dir "<source>")
+   ```
+
+2. **If locate-feature-dir succeeds** — use the returned `feature_dir` (artifacts
+   already exist locally from a prior iteration or manual checkout).
+
+3. **If locate-feature-dir fails** AND the source looks like a Jira key
+   (`RHAISTRAT-\d+` or `RHOAIENG-\d+`), fall back to GitLab:
+   ```bash
+   result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py ensure-gitlab-checkout "<source>")
    if [ $? -ne 0 ]; then
        echo "$result"
        exit 1
    fi
+   ```
+   - First run: sparse-clones `test-plans-data` to `~/.ai-sdlc-hub/test-plans-data/`
+   - Subsequent runs: `git pull` to refresh, reuses existing clone
+   - Requires `GITLAB_TOKEN` env var (STOP with instructions if not set)
+   - Inform user: "Fetched test plan artifacts from GitLab test-plans-data"
 
-   # Parse JSON output
+4. **Parse JSON output** (from whichever succeeded):
+   ```bash
    feature_dir=$(echo "$result" | jq -r '.feature_dir')
    source_type=$(echo "$result" | jq -r '.source_type')
    ```
 
-2. **Validate local paths against skill repository**:
+5. **Validate local paths against skill repository**:
    ```bash
    if [ "$source_type" = "local" ]; then
-       # Validate against skill repository (no force flag for updates)
        export CLAUDE_SKILL_DIR
        (cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py validate-local-path "$feature_dir") || exit 1
    fi
    ```
 
-**Note**: GitHub sources are always external repos, so no skill repo validation needed.
+**Note**: GitHub and GitLab sources are always external repos, so no skill repo validation needed.
 
 #### 0.3 Verify new documents exist
 
@@ -368,11 +382,56 @@ Present final summary to user:
 > - Review changes: `git diff` (if in git repo)
 > - Publish updates: `/test-plan-publish <feature_name>`
 
+### Step 11: Push Updated Artifacts to GitLab
+
+After presenting the summary, push the updated artifacts back to GitLab `test-plans-data`:
+
+```bash
+result=$(cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel) && uv run python scripts/repo.py push-to-gitlab "$feature_dir")
+if [ $? -ne 0 ]; then
+    echo "⚠️  Failed to push to GitLab: $result"
+    echo "You can push manually later."
+else
+    gitlab_url=$(echo "$result" | jq -r '.gitlab_url')
+    echo "✅ Updated artifacts pushed to GitLab: $gitlab_url"
+fi
+```
+
+This creates a **new** timestamped directory on a feature branch and opens a GitLab merge request against `main`.
+The returned `gitlab_url` points to the MR (browsable immediately); `main_tree_url` becomes valid after the MR merges.
+The working copy remains in place for subsequent iterations.
+
+### Step 12: Notify Jira
+
+If the `source_key` from TestPlan.md frontmatter matches a Jira key pattern:
+
+1. Build a comment summarizing the update:
+   ```
+   **Test Plan Updated (v{old_version} → v{new_version})**
+   - GitLab: {gitlab_url}
+   - Files updated: {list of changed artifact files}
+   - Gaps: {resolved_count} resolved, {unresolved_count} remaining
+   - Review score: {score}/10
+   ```
+
+2. Post the comment:
+   ```bash
+   cd $(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel)
+   SOURCE_KEY="$source_key" COMMENT_BODY="$comment_body" uv run python -c "
+   import os
+   from scripts.jira_utils import add_comment
+   add_comment(os.environ['SOURCE_KEY'], os.environ['COMMENT_BODY'])
+   "
+   ```
+
+If Jira credentials are not configured (`JIRA_URL`, `JIRA_USER`, `JIRA_TOKEN`),
+skip this step with a warning rather than failing the entire update.
+
 ## What this skill does NOT do
 
 - Does NOT create a new test plan from scratch — use `/test-plan-create` for that
 - Does NOT resolve PR review feedback — use `/test-plan-resolve-feedback` for that
-- Does NOT commit or push changes to GitHub — use `/test-plan-publish` after updating
+- Does NOT publish to GitHub for PR review — use `/test-plan-publish` after updating
 - Does NOT modify the original strategy (JIRA issue) — only the test plan
 - Does NOT auto-regenerate test cases without asking — always prompts user first
 
