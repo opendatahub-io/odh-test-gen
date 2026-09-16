@@ -62,6 +62,108 @@ class TestParseAcceptanceCriteria:
         assert result["found"] is True
         assert result["count"] == 0
 
+    AC_1 = "Given a new deployment, when a request arrives, then it is served, measured by: one route."
+    AC_2 = "Given an upgrade, when state is read, then IDs resolve, measured by: same data returned."
+
+    @pytest.mark.parametrize(
+        "label_greenfield,label_upgraded",
+        [
+            ("*Greenfield:*", "*Upgraded:*"),
+            ("*Greenfield*", "*Upgraded*"),
+            ("*Greenfield*:", "*Upgraded*:"),
+            ("**Greenfield:**", "**Upgraded:**"),
+            ("**Greenfield**", "**Upgraded**"),
+            ("**Greenfield**:", "**Upgraded**:"),
+        ],
+    )
+    @pytest.mark.parametrize("bullet", ["", "# ", "* "])
+    def test_group_headings_are_not_counted_as_acs(self, label_greenfield, label_upgraded, bullet):
+        """Every emphasis form is filtered, in the bullet paths and the paragraph fallback alike."""
+        content = (
+            "h3. Acceptance Criteria\n\n"
+            f"{bullet}{label_greenfield}\n\n"
+            f"{bullet}{self.AC_1}\n\n"
+            f"{bullet}{label_upgraded}\n\n"
+            f"{bullet}{self.AC_2}\n\n"
+            "h3. Effort Estimate\n"
+        )
+
+        result = parse_acceptance_criteria(content)
+
+        assert result["count"] == 2
+        assert [ac["text"] for ac in result["acceptance_criteria"]] == [self.AC_1, self.AC_2]
+        assert [ac["num"] for ac in result["acceptance_criteria"]] == [1, 2]
+
+    def test_fully_bold_ac_is_kept_when_nothing_follows_it(self):
+        """An AC written as one bold sentence is content, not a label — dropping it would corrupt
+        ac_count in exactly the way this filter exists to prevent, only by deletion instead of
+        inflation. With no unemphasised sibling below, there is nothing to group, so it is kept."""
+        content = (
+            "h3. Acceptance Criteria\n\n"
+            "*The system returns 200 OK for all valid requests*\n\n"
+            "*Data is never lost during upgrade*\n\n"
+            "h3. Effort Estimate\n"
+        )
+
+        result = parse_acceptance_criteria(content)
+
+        assert result["count"] == 2
+        assert [ac["text"] for ac in result["acceptance_criteria"]] == [
+            "*The system returns 200 OK for all valid requests*",
+            "*Data is never lost during upgrade*",
+        ]
+
+    def test_trailing_label_with_no_items_beneath_is_kept(self):
+        """A label at the end groups nothing, so it is preserved rather than guessed away."""
+        content = f"h3. Acceptance Criteria\n\n{self.AC_1}\n\n*Deferred:*\n\nh3. Effort Estimate\n"
+
+        result = parse_acceptance_criteria(content)
+
+        assert [ac["text"] for ac in result["acceptance_criteria"]] == [self.AC_1, "*Deferred:*"]
+
+    def test_partially_emphasised_item_is_never_treated_as_a_label(self):
+        """`*Security*: text` carries unemphasised content, so it is an item, not a heading."""
+        content = (
+            "h3. Acceptance Criteria\n\n"
+            "*Greenfield:*\n\n"
+            "*Security*: tenant A cannot read tenant B resources, measured by: 403 on cross access.\n\n"
+            "h3. Effort Estimate\n"
+        )
+
+        result = parse_acceptance_criteria(content)
+
+        assert result["acceptance_criteria"] == [
+            {
+                "num": 1,
+                "text": ("*Security*: tenant A cannot read tenant B resources, measured by: 403 on cross access."),
+            }
+        ]
+
+    def test_bold_ac_is_kept_when_a_real_group_heading_follows_it(self):
+        """A bold criterion above a later group must survive.
+
+        Only the item directly beneath a label is grouped by it. Scanning further down the section
+        would drop this criterion because an unemphasised item exists somewhere below, renumbering
+        the rest and silently repointing existing `(AC: #N)` citations.
+        """
+        content = (
+            "h3. Acceptance Criteria\n\n"
+            "*System boots within 5 seconds*\n\n"
+            "*Greenfield:*\n\n"
+            "Given a fresh install, when the operator applies the CR, then the operator reaches Ready.\n\n"
+            "h3. Effort Estimate\n"
+        )
+
+        result = parse_acceptance_criteria(content)
+
+        assert result["acceptance_criteria"] == [
+            {"num": 1, "text": "*System boots within 5 seconds*"},
+            {
+                "num": 2,
+                "text": ("Given a fresh install, when the operator applies the CR, then the operator reaches Ready."),
+            },
+        ]
+
     def test_multiline_ac_parsed_as_single_item(self):
         content = (FIXTURES_DIR / "strat-1737.md").read_text()
 
