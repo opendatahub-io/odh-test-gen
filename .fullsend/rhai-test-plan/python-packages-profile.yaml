@@ -1,0 +1,18 @@
+---
+id: python-packages
+display_name: Python package index
+description: Install the test-plan plugin's pinned Python dependencies.
+category: data
+endpoints:
+  - host: pypi.org
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    access: read-only
+  - host: files.pythonhosted.org
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    access: read-only
+binaries:
+  - path: "**/uv"

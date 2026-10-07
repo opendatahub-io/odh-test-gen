@@ -1,0 +1,5 @@
+version: "1"
+agents:
+  - source: rhai-test-plan/rhai-test-plan.yaml
+allowed_remote_resources:
+  - https://raw.githubusercontent.com/fullsend-ai/agents/

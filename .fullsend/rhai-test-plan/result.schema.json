@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RHAI test planner result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action", "task", "strategy_issue", "feature_dir", "verdict", "score", "manifest", "errors"],
+  "properties": {
+    "action": {"const": "completed"},
+    "task": {"enum": ["create", "create-cases"]},
+    "strategy_issue": {"type": "string", "pattern": "^(RHAISTRAT|RHOAIENG)-[0-9]+$"},
+    "feature_dir": {"type": "string", "minLength": 1},
+    "verdict": {"enum": ["Ready", "Revise", "Rework"]},
+    "score": {"type": "integer", "minimum": 0, "maximum": 10},
+    "manifest": {
+      "type": "object",
+      "minProperties": 5,
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "errors": {"type": "array", "maxItems": 0}
+  }
+}

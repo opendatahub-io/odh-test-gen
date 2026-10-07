@@ -1,0 +1,6 @@
+---
+name: python-packages
+type: python-packages
+# OpenShell provider creation currently requires a credential entry.
+credentials:
+  _NOOP_PYTHON_PACKAGES: ""

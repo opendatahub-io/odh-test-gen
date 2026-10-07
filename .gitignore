@@ -19,6 +19,7 @@ coverage.html
 *.p12
 *.jks
 *.env
+!.fullsend/rhai-test-plan/gcp-vertex.env
 .env.*
 !.env.example
 *.secret
@@ -43,3 +44,7 @@ kubeconfig
 */repo_instructions.md
 */test_implementation_conventions.md
 */test_scores/
+
+# Generated, symlink-free bundle for the Fullsend harness
+.fullsend/rhai-test-plan/plugin/
+.fullsend/.fullsend-cache/

@@ -1,0 +1,52 @@
+---
+agent: rhai-test-plan/prompt.md
+description: Generate and review RHAI test plans using the existing test-plan plugin.
+role: coder
+slug: opendatahub-io-rhai-test-plan
+model: claude-opus-4-6
+effort: high
+image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:259605fea321353552fdefd3a6a55e8b5c260998dfc5a622ed143e41a429995a
+policy: https://raw.githubusercontent.com/fullsend-ai/agents/11dd3ad15ab5033fd04661d7faf6f7af45548d2f/policies/base.yaml#sha256=3ed634401d87a1327fffe5e266272d930321484ce8a91dfa5fe447d4f2e00470
+plugins:
+  - rhai-test-plan/plugin
+host_files:
+  - src: rhai-test-plan/gcp-vertex.env
+    dest: /sandbox/workspace/.env.d/gcp-vertex.env
+    expand: true
+  - src: ${GOOGLE_APPLICATION_CREDENTIALS}
+    dest: /tmp/.gcp-credentials.json
+pre_script: rhai-test-plan/pre-run.sh
+post_script: rhai-test-plan/post-run.sh
+validation_loop:
+  preflight_check: 'python3 -c "import jsonschema"'
+  script: rhai-test-plan/validate-output.sh
+  schema: rhai-test-plan/result.schema.json
+  max_iterations: 2
+  feedback_mode: append
+timeout_minutes: 120
+env:
+  runner:
+    FULLSEND_TASK: "${FULLSEND_TASK}"
+    FULLSEND_SOURCE_KEY: "${FULLSEND_SOURCE_KEY}"
+    FULLSEND_RUN_DIR: "${FULLSEND_RUN_DIR}"
+    FULLSEND_FEATURE_DIR: "${FULLSEND_FEATURE_DIR}"
+    JIRA_TOKEN: "${JIRA_TOKEN}"
+  sandbox:
+    FULLSEND_TASK: "${FULLSEND_TASK}"
+    FULLSEND_SOURCE_KEY: "${FULLSEND_SOURCE_KEY}"
+    FULLSEND_RUN_DIR: "${FULLSEND_RUN_DIR}"
+    FULLSEND_FEATURE_DIR: "${FULLSEND_FEATURE_DIR}"
+    JIRA_URL: "${JIRA_URL}"
+    JIRA_USER: "${JIRA_USER}"
+    CLAUDE_NON_INTERACTIVE: "true"
+    CI: "true"
+    CLAUDE_CODE_SUBAGENT_MODEL: claude-opus-4-6
+openshell:
+  profiles:
+    - rhai-test-plan/jira-profile.yaml
+    - rhai-test-plan/python-packages-profile.yaml
+    - https://raw.githubusercontent.com/fullsend-ai/agents/11dd3ad15ab5033fd04661d7faf6f7af45548d2f/profiles/fullsend-vertex-ai.yaml#sha256=71ea4699ec497d4b9592220adf7588019eb8445dbc77af8e0e6767e68dcb5585
+providers:
+  - rhai-test-plan/jira-provider.yaml
+  - rhai-test-plan/python-packages-provider.yaml
+  - https://raw.githubusercontent.com/fullsend-ai/agents/11dd3ad15ab5033fd04661d7faf6f7af45548d2f/providers/vertex-ai.yaml#sha256=ae5ebe527e5d7b0fa6994346fde3f6ba11b632a3ba78ece96591b5ed85083ec1
